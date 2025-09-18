@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		12EDC2782E7CAAF0006D3979 /* levels.json in Resources */ = {isa = PBXBuildFile; fileRef = 12EDC2772E7CAAF0006D3979 /* levels.json */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		12EDC2432E7C93FE006D3979 /* AOTD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AOTD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		12EDC2772E7CAAF0006D3979 /* levels.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = levels.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,6 +37,7 @@
 		12EDC23A2E7C93FE006D3979 = {
 			isa = PBXGroup;
 			children = (
+				12EDC2772E7CAAF0006D3979 /* levels.json */,
 				12EDC2452E7C93FE006D3979 /* AOTD */,
 				12EDC2442E7C93FE006D3979 /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				12EDC2782E7CAAF0006D3979 /* levels.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

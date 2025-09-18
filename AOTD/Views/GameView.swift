@@ -2,50 +2,48 @@ import SwiftUI
 import SpriteKit
 
 struct GameView: View {
-    @State private var scene: GameScene?
-    
-    @State private var playerDirection = CGVector(dx: 0, dy: 0)
-    @State private var shootingDirection = CGVector(dx: 0, dy: 0)
-    
+    @State var scene: GameScene? = nil
+    @State var playerDirection = CGVector(dx: 0, dy: 0)
+    @State var shootingDirection = CGVector(dx: 0, dy: 0)
+
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { geo in
             ZStack {
-                if let scene = scene {
-                    SpriteView(scene: scene)
-                        .edgesIgnoringSafeArea(.all)
-                } else {
-                    Color.black
-                        .ignoresSafeArea()
-                }
-                
+                SpriteView(scene: scene ?? GameScene(size: CGSize(width: geo.size.width, height: geo.size.height)))
+                    .ignoresSafeArea()
+                    .onAppear {
+                        if scene == nil {
+                            let newScene = GameScene(size: geo.size)
+                            newScene.scaleMode = .resizeFill
+                            scene = newScene
+                        }
+                    }
+
                 VStack {
                     Spacer()
                     HStack {
-                        // Movement joystick
+                        // Left joystick
+                        // Left joystick
                         VirtualJoystickView(isShootingJoystick: false) { vector in
                             playerDirection = vector
                             if let player = scene?.players.first {
                                 player.move(direction: vector)
                             }
                         }
+                        
                         Spacer()
-                        // Shooting joystick
+                        
+                        // Right joystick
                         VirtualJoystickView(isShootingJoystick: true) { vector in
                             shootingDirection = vector
-                            if let player = scene?.players.first {
+                            if let player = scene?.players.first, let scene = scene {
                                 player.rotateToDirection(direction: vector)
-                                player.shoot(direction: vector)
+                                player.shoot(direction: vector, in: scene)  // ✅ scene is safely unwrapped
                             }
                         }
+
                     }
                     .padding()
-                }
-            }
-            .onAppear {
-                if scene == nil {
-                    let newScene = GameScene(size: geometry.size)
-                    newScene.scaleMode = .resizeFill
-                    scene = newScene
                 }
             }
         }
