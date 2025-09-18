@@ -4,26 +4,20 @@ struct LaunchMenuView: View {
     @State private var showGameView = false
     @State private var showSettingsView = false
     @State private var showMultiplayerAlert = false
-
+    
     var body: some View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
             VStack(spacing: 20) {
-                Button("Game Mode") {
-                    showGameModeSelection()
-                }
-                .buttonStyle(MainButtonStyle())
+                Button("Game Mode") { showGameModeSelection() }
+                    .buttonStyle(MainButtonStyle())
                 
-                Button("Settings") {
-                    showSettingsView = true
-                }
-                .buttonStyle(MainButtonStyle())
+                Button("Settings") { showSettingsView = true }
+                    .buttonStyle(MainButtonStyle())
                 
-                Button("Exit") {
-                    exit(0)
-                }
-                .buttonStyle(MainButtonStyle())
+                Button("Exit") { exit(0) }
+                    .buttonStyle(MainButtonStyle())
             }
         }
         .navigationDestination(isPresented: $showGameView) {
@@ -33,13 +27,12 @@ struct LaunchMenuView: View {
             SettingsView()
         }
         .alert("Multiplayer Mode", isPresented: $showMultiplayerAlert) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {}
         } message: {
             Text("Multiplayer feature coming soon!")
         }
     }
     
-    // MARK: - Helper Functions
     private func showGameModeSelection() {
         let alert = UIAlertController(title: "Select Game Mode", message: "Single Player or Multiplayer?", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Single Player", style: .default) { _ in
@@ -50,7 +43,6 @@ struct LaunchMenuView: View {
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         
-        // Present alert using UIWindowScene
         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = scene.windows.first,
            let root = window.rootViewController {
@@ -59,7 +51,6 @@ struct LaunchMenuView: View {
     }
 }
 
-// MARK: - Button Style
 struct MainButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
