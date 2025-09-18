@@ -1,0 +1,20 @@
+[
+    {
+        "terrain": "forest",
+        "zombieCount": 5,
+        "zombieHealth": 1,
+        "zombieSpeed": 2.0
+    },
+    {
+        "terrain": "desert",
+        "zombieCount": 8,
+        "zombieHealth": 1,
+        "zombieSpeed": 2.5
+    },
+    {
+        "terrain": "city",
+        "zombieCount": 10,
+        "zombieHealth": 1,
+        "zombieSpeed": 3.0
+    }
+]
