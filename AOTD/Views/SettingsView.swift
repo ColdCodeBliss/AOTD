@@ -1,16 +1,8 @@
-//
-//  SettingsView.swift
-//  AOTD
-//
-//  Created by Ryan Bliss on 9/18/25.
-//
-
-
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var soundEnabled: Bool = true
-    @State private var volume: Double = 0.5
+    @State private var soundEnabled = true
+    @State private var volume = 0.5
     
     var body: some View {
         VStack(spacing: 20) {
@@ -20,6 +12,7 @@ struct SettingsView: View {
                 soundEnabled = true
                 volume = 0.5
             }
+            .buttonStyle(MainButtonStyle())
         }
         .padding()
     }

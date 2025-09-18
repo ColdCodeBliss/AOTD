@@ -2,27 +2,26 @@ import SwiftUI
 import SpriteKit
 
 struct GameView: View {
-    var scene: GameScene {
-        let scene = GameScene(size: UIScreen.main.bounds.size)
-        scene.scaleMode = .resizeFill
-        return scene
-    }
-    
+    @State private var scene: GameScene?
+
     var body: some View {
-        ZStack {
-            // Embed SKScene in SwiftUI
-            SpriteView(scene: scene)
-                .edgesIgnoringSafeArea(.all)
-            
-            // Overlay joystick or HUD here
-            VStack {
-                Spacer()
-                HStack {
-                    VirtualJoystickView(isShootingJoystick: false)
-                    Spacer()
-                    VirtualJoystickView(isShootingJoystick: true)
+        GeometryReader { geometry in
+            Group {
+                if let scene {
+                    SpriteView(scene: scene)
+                        .edgesIgnoringSafeArea(.all)
+                } else {
+                    // Placeholder while the scene is being created
+                    Color.clear
+                        .edgesIgnoringSafeArea(.all)
                 }
-                .padding()
+            }
+            .onAppear {
+                if scene == nil {
+                    let newScene = GameScene(size: geometry.size)
+                    newScene.scaleMode = .resizeFill
+                    scene = newScene
+                }
             }
         }
     }
