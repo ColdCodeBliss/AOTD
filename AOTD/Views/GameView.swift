@@ -9,7 +9,7 @@ struct GameView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                SpriteView(scene: scene ?? GameScene(size: CGSize(width: geo.size.width, height: geo.size.height)))
+                SpriteView(scene: scene ?? SKScene(size: .zero))
                     .ignoresSafeArea()
                     .onAppear {
                         if scene == nil {
@@ -22,26 +22,20 @@ struct GameView: View {
                 VStack {
                     Spacer()
                     HStack {
-                        // Left joystick
-                        // Left joystick
                         VirtualJoystickView(isShootingJoystick: false) { vector in
                             playerDirection = vector
                             if let player = scene?.players.first {
                                 player.move(direction: vector)
                             }
                         }
-                        
                         Spacer()
-                        
-                        // Right joystick
                         VirtualJoystickView(isShootingJoystick: true) { vector in
                             shootingDirection = vector
                             if let player = scene?.players.first, let scene = scene {
                                 player.rotateToDirection(direction: vector)
-                                player.shoot(direction: vector, in: scene)  // ✅ scene is safely unwrapped
+                                player.shoot(direction: vector, in: scene)
                             }
                         }
-
                     }
                     .padding()
                 }

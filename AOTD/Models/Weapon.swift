@@ -7,14 +7,13 @@ class Weapon {
         case laserGun
         case shotgun
     }
-    
+
     var type: WeaponType
-    
+
     init(type: WeaponType) {
         self.type = type
     }
-    
-    // Fire method updated to accept scene reference
+
     func fire(from position: CGPoint, direction: CGVector, in scene: SKScene) {
         let bullet = SKSpriteNode(imageNamed: "bullet")
         bullet.position = position

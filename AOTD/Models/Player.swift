@@ -25,8 +25,7 @@ class Player {
         sprite.zRotation = atan2(direction.dy, direction.dx)
     }
 
-    // Shoot with current weapon
-    // Added `in scene: SKScene` parameter to pass the scene reference
+    // Shoot with current weapon, passing in scene reference
     func shoot(direction: CGVector, in scene: SKScene) {
         currentWeapon.fire(from: sprite.position, direction: direction, in: scene)
     }
