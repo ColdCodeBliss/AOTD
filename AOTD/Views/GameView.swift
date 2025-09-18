@@ -9,6 +9,7 @@ struct GameView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
+                // Use the GameScene or a zero-sized SKScene fallback
                 SpriteView(scene: scene ?? SKScene(size: .zero))
                     .ignoresSafeArea()
                     .onAppear {
@@ -22,20 +23,32 @@ struct GameView: View {
                 VStack {
                     Spacer()
                     HStack {
+                        // Left joystick: movement
                         VirtualJoystickView(isShootingJoystick: false) { vector in
                             playerDirection = vector
                             if let player = scene?.players.first {
                                 player.move(direction: vector)
                             }
                         }
+
                         Spacer()
-                        VirtualJoystickView(isShootingJoystick: true) { vector in
+
+                        // Right joystick: shooting
+                        VirtualJoystickView(isShootingJoystick: true,
+                                            onMove: { vector in
                             shootingDirection = vector
                             if let player = scene?.players.first, let scene = scene {
                                 player.rotateToDirection(direction: vector)
-                                player.shoot(direction: vector, in: scene)
+                                // Start continuous shooting while joystick is held
+                                player.startShooting(direction: vector, in: scene)
                             }
-                        }
+                        },
+                                            onRelease: {
+                            // Stop shooting when joystick is released
+                            if let player = scene?.players.first {
+                                player.stopShooting()
+                            }
+                        })
                     }
                     .padding()
                 }

@@ -2,36 +2,63 @@ import SwiftUI
 import CoreGraphics
 
 struct VirtualJoystickView: View {
+    // MARK: - Properties
     var isShootingJoystick: Bool
-    var onMove: ((CGVector) -> Void)? = nil
-    
-    @State private var dragOffset = CGSize.zero
-    
+    var onMove: (CGVector) -> Void
+    var onRelease: (() -> Void)? = nil
+
+    // Internal state
+    @State private var dragLocation: CGPoint = .zero
+    @State private var isDragging: Bool = false
+
+    // Joystick configuration
+    private let joystickSize: CGFloat = 150
+    private let knobSize: CGFloat = 60
+
     var body: some View {
-        Circle()
-            .strokeBorder(Color.white, lineWidth: 3)
-            .background(Circle().fill(Color.gray.opacity(0.5)))
-            .frame(width: 150, height: 150)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        // Map drag to direction vector (-1 to 1)
-                        let dx = max(min(value.translation.width / 75, 1), -1)
-                        let dy = max(min(value.translation.height / 75, 1), -1)
-                        let vector = CGVector(dx: dx, dy: dy)
-                        dragOffset = value.translation
-                        onMove?(vector)
-                    }
-                    .onEnded { _ in
-                        dragOffset = .zero
-                        onMove?(CGVector(dx: 0, dy: 0))
-                    }
-            )
-            .overlay(
-                Circle()
-                    .fill(Color.white.opacity(0.3))
-                    .frame(width: 50, height: 50)
-                    .offset(dragOffset)
-            )
+        ZStack {
+            // Background circle
+            Circle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: joystickSize, height: joystickSize)
+
+            // Knob circle
+            Circle()
+                .fill(isShootingJoystick ? Color.red : Color.blue)
+                .frame(width: knobSize, height: knobSize)
+                .offset(x: dragLocation.x, y: dragLocation.y)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            self.isDragging = true
+
+                            // Calculate displacement relative to center
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+
+                            // Limit the knob to joystick radius
+                            let radius = (joystickSize - knobSize) / 2
+                            let distance = sqrt(dx*dx + dy*dy)
+                            let clampedDistance = min(distance, radius)
+                            let angle = atan2(dy, dx)
+                            let offsetX = cos(angle) * clampedDistance
+                            let offsetY = sin(angle) * clampedDistance
+
+                            self.dragLocation = CGPoint(x: offsetX, y: offsetY)
+
+                            // Convert offset to CGVector in range [-1,1]
+                            let vector = CGVector(dx: offsetX / radius, dy: offsetY / radius)
+                            self.onMove(vector)
+                        }
+                        .onEnded { _ in
+                            // Reset knob to center
+                            self.dragLocation = .zero
+                            self.isDragging = false
+                            // Notify release
+                            self.onRelease?()
+                        }
+                )
+        }
+        .frame(width: joystickSize, height: joystickSize)
     }
 }

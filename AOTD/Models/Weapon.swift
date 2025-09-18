@@ -15,13 +15,21 @@ class Weapon {
     }
 
     func fire(from position: CGPoint, direction: CGVector, in scene: SKScene) {
+        // Create bullet
         let bullet = SKSpriteNode(imageNamed: "bullet")
         bullet.position = position
         bullet.size = CGSize(width: 15, height: 15)
         bullet.zPosition = 3
-        let velocity = CGVector(dx: direction.dx * 10, dy: direction.dy * 10)
-        let moveAction = SKAction.move(by: velocity, duration: 0.1)
-        bullet.run(SKAction.repeatForever(moveAction))
+
+        // Fast velocity for a continuous stream
+        let velocityMultiplier: CGFloat = 35.0 //higher for faster stream
+        let velocity = CGVector(dx: direction.dx * velocityMultiplier,
+                                dy: direction.dy * velocityMultiplier)
+
+        let moveAction = SKAction.repeatForever(SKAction.move(by: velocity, duration: 0.05))
+        bullet.run(moveAction)
+
+        // Add bullet to scene
         scene.addChild(bullet)
     }
 }

@@ -4,16 +4,13 @@ class GameScene: SKScene {
     var players: [Player] = []
     var zombies: [Zombie] = []
     var roundManager: RoundManager?
+    var levelNumber: Int = 1
 
     override func didMove(to view: SKView) {
-        let bg = SKSpriteNode(color: .brown, size: size)
-        bg.position = CGPoint(x: size.width/2, y: size.height/2)
-        bg.zPosition = -1
-        addChild(bg)
-
+        backgroundColor = .brown
         print("GameScene loaded")
 
-        // Initialize player
+        // Initialize Player
         let playerSprite = SKSpriteNode(imageNamed: "player_1")
         playerSprite.size = CGSize(width: 60, height: 60)
         playerSprite.position = CGPoint(x: size.width/2, y: size.height/2)
@@ -29,7 +26,7 @@ class GameScene: SKScene {
         ])
         player.sprite.run(SKAction.repeatForever(bob))
 
-        // Load levels
+        // Load levels and setup RoundManager
         if let levels = LevelLoader.loadLevels() {
             roundManager = RoundManager(levelData: levels)
             roundManager?.startRound(in: self)
@@ -38,11 +35,14 @@ class GameScene: SKScene {
 
     func initializeRound(with level: Level) {
         for _ in 0..<level.zombieCount {
-            let zombie = Zombie(texture: SKTexture(imageNamed: "zombie"), color: .clear, size: CGSize(width: 50, height: 50))
+            let zombie = Zombie(texture: SKTexture(imageNamed: "zombie"),
+                                color: .clear,
+                                size: CGSize(width: 50, height: 50))
             zombie.position = CGPoint(x: CGFloat.random(in: 50..<(size.width-50)),
                                       y: CGFloat.random(in: 50..<(size.height-50)))
+            // Scale zombie health with level
+            zombie.health = max(1, level.zombieHealth + (levelNumber - 1))
             zombie.moveSpeed = level.zombieSpeed
-            zombie.health = level.zombieHealth
             zombie.zPosition = 1
             addChild(zombie)
             zombies.append(zombie)
@@ -58,8 +58,24 @@ class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         guard let player = players.first else { return }
 
+        // Update bullets
+        enumerateChildNodes(withName: "bullet") { node, _ in
+            if let bullet = node as? SKSpriteNode {
+                // Check collision with each zombie
+                for zombie in self.zombies {
+                    if bullet.frame.intersects(zombie.frame) {
+                        zombie.takeDamage()
+                        bullet.removeFromParent()
+                    }
+                }
+            }
+        }
+
+        // Update zombies
         for zombie in zombies {
             zombie.update(playerPosition: player.sprite.position)
+
+            // Check collision with player
             if zombie.frame.intersects(player.sprite.frame) {
                 player.takeDamage()
             }

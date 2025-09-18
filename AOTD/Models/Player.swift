@@ -3,16 +3,19 @@ import SpriteKit
 class Player {
     var sprite: SKSpriteNode
     var speed: CGFloat = 5.0
-    var health: Int = 1
+    var lives: Int = 3
     var armorBuffActive: Bool = false
+    var isInvulnerable: Bool = false
     var currentWeapon: Weapon
+    
+    // Timer for automatic shooting
+    private var shootingTimer: Timer?
 
     init(sprite: SKSpriteNode, weapon: Weapon) {
         self.sprite = sprite
         self.currentWeapon = weapon
     }
 
-    // Move the player
     func move(direction: CGVector) {
         let dx = direction.dx * speed
         let dy = direction.dy * speed
@@ -20,24 +23,50 @@ class Player {
         sprite.position.y += dy
     }
 
-    // Rotate to face a direction
     func rotateToDirection(direction: CGVector) {
         sprite.zRotation = atan2(direction.dy, direction.dx)
     }
 
-    // Shoot with current weapon, passing in scene reference
-    func shoot(direction: CGVector, in scene: SKScene) {
-        currentWeapon.fire(from: sprite.position, direction: direction, in: scene)
+    // Start continuous shooting
+    func startShooting(direction: CGVector, in scene: SKScene) {
+        stopShooting() // ensure no duplicate timers
+
+        shootingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.currentWeapon.fire(from: self.sprite.position, direction: direction, in: scene)
+        }
     }
 
-    // Handle taking damage
+    // Stop continuous shooting
+    func stopShooting() {
+        shootingTimer?.invalidate()
+        shootingTimer = nil
+    }
+
     func takeDamage() {
-        if armorBuffActive {
-            armorBuffActive = false
-            print("Armor absorbed damage!")
+        guard !isInvulnerable else { return }
+
+        lives -= 1
+        print("Player hit! Lives remaining: \(lives)")
+
+        if lives <= 0 {
+            die()
         } else {
-            health -= 1
-            if health <= 0 { die() }
+            respawn()
+        }
+    }
+
+    func respawn() {
+        sprite.position = CGPoint(x: sprite.scene!.size.width/2,
+                                  y: sprite.scene!.size.height/2)
+        isInvulnerable = true
+
+        let fadeOut = SKAction.fadeAlpha(to: 0.2, duration: 0.3)
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.3)
+        let flicker = SKAction.sequence([fadeOut, fadeIn])
+        let flickerRepeat = SKAction.repeat(flicker, count: 5)
+        sprite.run(flickerRepeat) { [weak self] in
+            self?.isInvulnerable = false
         }
     }
 
@@ -49,5 +78,6 @@ class Player {
     func die() {
         print("Player has died!")
         sprite.removeFromParent()
+        stopShooting()
     }
 }
