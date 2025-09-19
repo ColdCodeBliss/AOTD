@@ -23,6 +23,10 @@ class GameScene: SKScene {
     private var hamburgerNode: SKNode?
     private var settingsHost: UIViewController?
 
+    // MARK: - Game Over state
+    private var isGameOver = false
+    private var gameOverAlertPresented = false
+
     // persisted settings (simple, safe defaults)
     private var masterVolume: Float = {
         if UserDefaults.standard.object(forKey: "AOTD.masterVolume") == nil { return 0.8 }
@@ -55,7 +59,6 @@ class GameScene: SKScene {
         // Load levels and start first round
         if let levels = LevelLoader.loadLevels() {
             let rm = RoundManager(levelData: levels)
-            // apply initial graphics prefs
             rm.lowEffectsEnabled = lowEffectsEnabled
             rm.spawnFPS30CapHint = fps30CapEnabled
             rm.shadowsDisabled = shadowsDisabled
@@ -64,15 +67,12 @@ class GameScene: SKScene {
         }
 
         applyGraphicsToManagersAndView()
-
-        // Ensure initial layout respects safe areas (after views are attached)
         positionHUD()
         positionHamburger()
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        // These are now nil-safe; they’ll early-return if nodes aren’t created yet.
         positionHUD()
         positionHamburger()
     }
@@ -85,7 +85,7 @@ class GameScene: SKScene {
         playerSprite.position = CGPoint(x: viewSize.width/2, y: viewSize.height/2)
         let weapon = Weapon(type: .machineGun)
         let player = Player(sprite: playerSprite, weapon: weapon)
-        players.append(player)
+        players = [player]
         addChild(player.sprite)
 
         let bob = SKAction.sequence([SKAction.moveBy(x: 0, y: 5, duration: 0.5),
@@ -95,13 +95,11 @@ class GameScene: SKScene {
 
     // MARK: - HUD Setup
     func setupHUD() {
-        // Heart icon
         livesHeart = SKSpriteNode(imageNamed: "heart")
         livesHeart.size = CGSize(width: 30, height: 30)
         livesHeart.zPosition = 100
         addChild(livesHeart)
 
-        // Lives label
         livesLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
         livesLabel.fontSize = 24
         livesLabel.fontColor = .white
@@ -115,36 +113,28 @@ class GameScene: SKScene {
     }
 
     // Safe-area helpers
-    private func safeAreaInsets() -> UIEdgeInsets {
-        view?.window?.safeAreaInsets ?? .zero
-    }
+    private func safeAreaInsets() -> UIEdgeInsets { view?.window?.safeAreaInsets ?? .zero }
     private func safeFrame() -> CGRect {
         let sz = view?.bounds.size ?? size
         return CGRect(origin: .zero, size: sz).inset(by: safeAreaInsets())
     }
 
     func positionHUD() {
-        // Nil-safe: if HUD hasn’t been created yet, do nothing (prevents crash on early didChangeSize).
         guard let heart = livesHeart, let label = livesLabel else { return }
-
         let r = safeFrame()
         let padding: CGFloat = 12
 
         let heartHalfW = heart.size.width * 0.5
         let heartHalfH = heart.size.height * 0.5
-        heart.position = CGPoint(
-            x: r.maxX - padding - heartHalfW,
-            y: r.maxY - padding - heartHalfH
-        )
+        heart.position = CGPoint(x: r.maxX - padding - heartHalfW, y: r.maxY - padding - heartHalfH)
 
-        label.position = CGPoint(
-            x: heart.position.x + 25,
-            y: heart.position.y - 1
-        )
+        label.position = CGPoint(x: heart.position.x + 25, y: heart.position.y - 1)
     }
 
     func updateHUD() {
-        livesLabel?.text = "\(players.first?.lives ?? 0)"
+        // Clamp so it never shows negative values
+        let lives = max(0, players.first?.lives ?? 0)
+        livesLabel?.text = "\(lives)"
     }
 
     // MARK: - Countdown and Level Start (called by RoundManager)
@@ -206,6 +196,9 @@ class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         guard let player = players.first else { return }
 
+        // Early out if we've already hit Game Over (no more damage to player)
+        if isGameOver { return }
+
         // Remove dead zombies immediately and keep array in sync
         zombies = zombies.filter { zombie in
             if zombie.health <= 0 {
@@ -213,9 +206,11 @@ class GameScene: SKScene {
                 return false
             }
             zombie.update(playerPosition: player.sprite.position)
-            if zombie.frame.intersects(player.sprite.frame) {
+            // Only apply damage when not game over and player still has lives
+            if (players.first?.lives ?? 0) > 0, zombie.frame.intersects(player.sprite.frame) {
                 player.takeDamage()
                 updateHUD()
+                checkForGameOver()
             }
             return true
         }
@@ -238,6 +233,72 @@ class GameScene: SKScene {
            roundManager?.zombiesSpawnedThisRound ?? 0 >= roundManager?.maxZombiesThisRound ?? 0 {
             roundManager?.levelCompleted()
         }
+    }
+
+    private func checkForGameOver() {
+        if (players.first?.lives ?? 0) <= 0 {
+            triggerGameOver()
+        }
+    }
+
+    private func triggerGameOver() {
+        guard !gameOverAlertPresented else { return }
+        isGameOver = true
+        gameOverAlertPresented = true
+
+        // Stop spawning and pause the scene
+        roundManager?.spawnTimer?.invalidate()
+        roundManager?.spawnTimer = nil
+        isPaused = true
+
+        let alert = UIAlertController(
+            title: "You were overrun and are out of lives!",
+            message: "Try again?",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "No", style: .cancel, handler: { _ in
+            NotificationCenter.default.post(name: .AOTDExitToMainMenu, object: nil)
+        }))
+        alert.addAction(UIAlertAction(title: "Yes", style: .default, handler: { _ in
+            self.restartSinglePlayer()
+        }))
+
+        topViewController()?.present(alert, animated: true, completion: nil)
+    }
+
+    private func restartSinglePlayer() {
+        // Clean up scene content
+        removeAllActions()
+
+        // Remove bullets & zombies nodes
+        enumerateChildNodes(withName: "bullet") { node, _ in node.removeFromParent() }
+        for z in zombies { z.removeFromParent() }
+        zombies.removeAll()
+
+        // Reset player
+        players.removeAll()
+        setupPlayer()
+
+        // Reset HUD
+        updateHUD()
+
+        // Reset progression
+        levelNumber = 1
+
+        // Recreate/Reset RoundManager and start again
+        if let levels = LevelLoader.loadLevels() {
+            roundManager?.spawnTimer?.invalidate()
+            roundManager = RoundManager(levelData: levels)
+            roundManager?.lowEffectsEnabled = lowEffectsEnabled
+            roundManager?.spawnFPS30CapHint = fps30CapEnabled
+            roundManager?.shadowsDisabled = shadowsDisabled
+            roundManager?.startRound(in: self)
+        }
+
+        // Resume scene
+        isPaused = false
+        isGameOver = false
+        gameOverAlertPresented = false
     }
 
     // MARK: - Hamburger UI
@@ -263,7 +324,7 @@ class GameScene: SKScene {
         }
 
         hamburgerNode = container
-        addChild(container)
+        addChild(hamburgerNode!)
         positionHamburger()
     }
 
@@ -295,7 +356,6 @@ class GameScene: SKScene {
         // pause gameplay
         isPaused = true
 
-        // Build overlay using SwiftUI
         let overlay = SettingsOverlay(
             initialVolume: masterVolume,
             lowEffects: lowEffectsEnabled,
@@ -373,19 +433,14 @@ class GameScene: SKScene {
 
     // MARK: - Graphics application
     private func applyGraphicsToManagersAndView() {
-        // Cap FPS on the SKView
         if let skv = view {
             skv.preferredFramesPerSecond = fps30CapEnabled ? 30 : 60
         }
-
-        // Toggle any lighting/shadows if you add SKLightNodes later
         if shadowsDisabled {
             enumerateChildNodes(withName: "//") { node, _ in
                 node.children.compactMap { $0 as? SKLightNode }.forEach { $0.isEnabled = false }
             }
         }
-
-        // Let RoundManager know (affects spawn pacing / active caps)
         roundManager?.lowEffectsEnabled = lowEffectsEnabled
         roundManager?.spawnFPS30CapHint = fps30CapEnabled
         roundManager?.shadowsDisabled = shadowsDisabled
