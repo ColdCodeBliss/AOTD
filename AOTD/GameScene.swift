@@ -8,11 +8,16 @@ class GameScene: SKScene {
 
     var levelNumber: Int = 1
 
+    // MARK: - HUD
+    var livesLabel: SKLabelNode!
+    var livesHeart: SKSpriteNode!
+
     override func didMove(to view: SKView) {
         backgroundColor = .brown
         print("GameScene loaded")
 
         setupPlayer()
+        setupHUD()
 
         // Load levels and start first round
         if let levels = LevelLoader.loadLevels() {
@@ -21,6 +26,7 @@ class GameScene: SKScene {
         }
     }
 
+    // MARK: - Player Setup
     func setupPlayer() {
         guard let viewSize = view?.bounds.size else { return }
         let playerSprite = SKSpriteNode(imageNamed: "player_1")
@@ -36,7 +42,34 @@ class GameScene: SKScene {
         player.sprite.run(SKAction.repeatForever(bob))
     }
 
-    // MARK: - Countdown and spawning
+    // MARK: - HUD Setup
+    func setupHUD() {
+        guard let viewSize = view?.bounds.size else { return }
+
+        // Heart icon
+        livesHeart = SKSpriteNode(imageNamed: "heart")
+        livesHeart.size = CGSize(width: 30, height: 30)
+        livesHeart.position = CGPoint(x: viewSize.width - 60, y: viewSize.height - 40)
+        livesHeart.zPosition = 100
+        addChild(livesHeart)
+
+        // Lives label
+        livesLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        livesLabel.fontSize = 24
+        livesLabel.fontColor = .white
+        livesLabel.horizontalAlignmentMode = .left
+        livesLabel.verticalAlignmentMode = .center
+        livesLabel.position = CGPoint(x: livesHeart.position.x + 25, y: livesHeart.position.y)
+        livesLabel.zPosition = 100
+        livesLabel.text = "\(players.first?.lives ?? 3)"
+        addChild(livesLabel)
+    }
+
+    func updateHUD() {
+        livesLabel.text = "\(players.first?.lives ?? 0)"
+    }
+
+    // MARK: - Countdown and Level Start
     func startCountdownAndLevel(spawnCallback: @escaping () -> Void) {
         var count = 3
         let countdownLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
@@ -58,7 +91,7 @@ class GameScene: SKScene {
         }
     }
 
-    // MARK: - Spawn individual zombie (called by RoundManager)
+    // MARK: - Spawn individual zombie
     func spawnZombie(level: Level) {
         let side = Int.random(in: 0..<4)
         var position = CGPoint.zero
@@ -74,7 +107,7 @@ class GameScene: SKScene {
                             color: .clear,
                             size: CGSize(width: 50, height: 50))
         zombie.position = position
-        zombie.health = max(1, levelNumber) // scales with level
+        zombie.health = max(1, levelNumber)
         zombie.moveSpeed = 1.5
         zombie.zPosition = 1
         addChild(zombie)
@@ -95,12 +128,18 @@ class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         guard let player = players.first else { return }
 
-        // Update zombies
-        for zombie in zombies {
+        // Remove dead zombies immediately and keep array in sync
+        zombies = zombies.filter { zombie in
+            if zombie.health <= 0 {
+                zombie.removeFromParent()
+                return false
+            }
             zombie.update(playerPosition: player.sprite.position)
             if zombie.frame.intersects(player.sprite.frame) {
                 player.takeDamage()
+                updateHUD()
             }
+            return true
         }
 
         // Bullet collisions
@@ -114,6 +153,9 @@ class GameScene: SKScene {
                 }
             }
         }
+
+        // Update HUD
+        updateHUD()
 
         // Check if round complete
         if zombies.isEmpty,
