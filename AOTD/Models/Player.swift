@@ -1,5 +1,9 @@
 import SpriteKit
 
+extension Notification.Name {
+    static let AOTDPlayerFiredShot = Notification.Name("AOTDPlayerFiredShot")
+}
+
 class Player {
     var sprite: SKSpriteNode
     var speed: CGFloat = 5.0
@@ -23,19 +27,17 @@ class Player {
     // Per-weapon forward tweak
     private var weaponMuzzleOffset: CGFloat = 0
     // Fine-tune forward nudge (increase to move away from muzzle)
-    private var muzzleNudgeForward: CGFloat = 0
+    private var muzzleNudgeForward: CGFloat = 0 // increse to move away from muzzle
     // Fine-tune lateral nudge (perpendicular to barrel; positive values move to local +Y)
-    private var muzzleNudgeLateral: CGFloat = -14 // lower the number to move more right
+    private var muzzleNudgeLateral: CGFloat = -14 //lower the number to move more right
 
-    // [FLASH NUDGE] — independent offsets for the muzzle flash visual
+    // Independent offsets for the muzzle flash visual
     private var flashNudgeForward: CGFloat = -10     // +X moves flash farther out the barrel
-    private var flashNudgeLateral: CGFloat = 0     // +Y moves flash to the "right" side of barrel
+    private var flashNudgeLateral: CGFloat = 0       // +Y moves flash “right” in local space
 
     init(sprite: SKSpriteNode, weapon: Weapon) {
         self.sprite = sprite
         self.currentWeapon = weapon
-
-        // Attach the muzzle so it rotates with the player.
         muzzle.position = computedMuzzleLocalPosition()
         sprite.addChild(muzzle)
     }
@@ -63,7 +65,6 @@ class Player {
         muzzle.position = computedMuzzleLocalPosition()
     }
 
-    // [FLASH NUDGE] — tweak flash placement independently of bullet origin
     func setMuzzleFlashNudges(forward: CGFloat? = nil, lateral: CGFloat? = nil) {
         if let f = forward { flashNudgeForward = f }
         if let l = lateral { flashNudgeLateral = l }
@@ -98,15 +99,15 @@ class Player {
 
             self.currentWeapon.fire(from: origin, direction: dir, in: scene)
 
-            // --- Cone muzzle flash (attached to the muzzle) ---
+            // Notify per actual shot (for power-up time that drains only when firing)
+            NotificationCenter.default.post(name: .AOTDPlayerFiredShot, object: nil, userInfo: [
+                "fireInterval": self.currentWeapon.fireRate
+            ])
+
+            // Cone muzzle flash
             let flash = self.makeMuzzleFlash(for: self.currentWeapon)
-
-            // [FLASH NUDGE] — position the flash slightly forward/right relative to the muzzle tip
             flash.position = CGPoint(x: self.flashNudgeForward, y: self.flashNudgeLateral)
-
             self.muzzle.addChild(flash)
-
-            // Quick pop + fade
             flash.alpha = flash.alpha * 0.9
             flash.setScale(0.9)
             flash.run(.sequence([
@@ -184,7 +185,7 @@ class Player {
 
     // MARK: - Muzzle flash builder (cone)
     private func makeMuzzleFlash(for weapon: Weapon) -> SKNode {
-        // Keep your tuned values
+        // Your tuned values
         let scale: CGFloat = 0.9
         let (length, width, coreScale): (CGFloat, CGFloat, CGFloat) = {
             switch weapon.type {
@@ -211,7 +212,6 @@ class Player {
         let group = SKNode()
         group.addChild(outer)
         group.addChild(inner)
-
         group.zRotation = CGFloat.random(in: -0.05...0.05)
         group.setScale(scale)
         return group

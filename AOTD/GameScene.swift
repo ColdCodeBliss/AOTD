@@ -5,6 +5,7 @@ import UIKit
 extension Notification.Name {
     static let AOTDExitToMainMenu = Notification.Name("AOTDExitToMainMenu")
     static let AOTDVolumeChanged  = Notification.Name("AOTDVolumeChanged")
+    // AOTDPlayerFiredShot is declared in Player.swift (do not redeclare here)
 }
 
 class GameScene: SKScene {
@@ -18,6 +19,9 @@ class GameScene: SKScene {
     // MARK: - HUD
     var livesLabel: SKLabelNode!
     var livesHeart: SKSpriteNode!
+    private var shotgunTimerLabel: SKLabelNode?
+    private var hmgTimerLabel: SKLabelNode?
+    private var laserTimerLabel: SKLabelNode?
 
     // MARK: - Menu/Settings
     private var hamburgerNode: SKNode?
@@ -27,7 +31,26 @@ class GameScene: SKScene {
     private var isGameOver = false
     private var gameOverAlertPresented = false
 
-    // persisted settings (simple, safe defaults)
+    // MARK: - Power-ups
+    private var shotgunPickupNode: SKSpriteNode?
+    private var hmgPickupNode: SKSpriteNode?
+    private var laserPickupNode: SKSpriteNode?
+
+    // Shotgun (firing-time power-up)
+    private var shotgunActive = false
+    private var shotgunTimeRemaining: TimeInterval = 0
+    private var roundsSinceShotgunSpawn: Int = 0   // 10% chance, guaranteed every 3 rounds
+
+    // HMG (firing-time power-up)
+    private var hmgActive = false
+    private var hmgTimeRemaining: TimeInterval = 0
+    private var roundsSinceHMGSpawn: Int = 0       // 10% chance, guaranteed every 5 rounds
+
+    // Laser (firing-time power-up)
+    private var laserActive = false
+    private var laserTimeRemaining: TimeInterval = 0  // 7s firing-only
+
+    // persisted settings
     private var masterVolume: Float = {
         if UserDefaults.standard.object(forKey: "AOTD.masterVolume") == nil { return 0.8 }
         return UserDefaults.standard.float(forKey: "AOTD.masterVolume")
@@ -56,7 +79,8 @@ class GameScene: SKScene {
         setupHUD()
         addHamburger()
 
-        // Load levels and start first round
+        NotificationCenter.default.addObserver(self, selector: #selector(onPlayerFiredShot(_:)), name: .AOTDPlayerFiredShot, object: nil)
+
         if let levels = LevelLoader.loadLevels() {
             let rm = RoundManager(levelData: levels)
             rm.lowEffectsEnabled = lowEffectsEnabled
@@ -69,12 +93,29 @@ class GameScene: SKScene {
         applyGraphicsToManagersAndView()
         positionHUD()
         positionHamburger()
+
+        // Round 1 evaluation for chance-based powerups
+        attemptSpawnShotgunForRound()
+        attemptSpawnHMGForRound()
+
+        // Laser test: spawn at start of Round 1
+        spawnLaserPickupAtRound1()
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         positionHUD()
         positionHamburger()
+        positionShotgunHUD()
+        positionHMGHUD()
+        positionLaserHUD()
+        positionPowerup(hmgPickupNode)
+        positionPowerup(shotgunPickupNode)
+        positionPowerup(laserPickupNode)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Player Setup
@@ -109,7 +150,40 @@ class GameScene: SKScene {
         livesLabel.text = "\(players.first?.lives ?? 3)"
         addChild(livesLabel)
 
+        // Shotgun timer HUD
+        let sLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        sLabel.fontSize = 18
+        sLabel.fontColor = .yellow
+        sLabel.zPosition = 101
+        sLabel.text = ""
+        sLabel.isHidden = true
+        shotgunTimerLabel = sLabel
+        addChild(sLabel)
+
+        // HMG timer HUD
+        let hLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        hLabel.fontSize = 18
+        hLabel.fontColor = .orange
+        hLabel.zPosition = 101
+        hLabel.text = ""
+        hLabel.isHidden = true
+        hmgTimerLabel = hLabel
+        addChild(hLabel)
+
+        // Laser timer HUD
+        let lLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        lLabel.fontSize = 18
+        lLabel.fontColor = SKColor(cgColor: CGColor(red: 0.4, green: 0.95, blue: 1.0, alpha: 1.0)) // teal/cyan
+        lLabel.zPosition = 101
+        lLabel.text = ""
+        lLabel.isHidden = true
+        laserTimerLabel = lLabel
+        addChild(lLabel)
+
         positionHUD()
+        positionShotgunHUD()
+        positionHMGHUD()
+        positionLaserHUD()
     }
 
     // Safe-area helpers
@@ -127,12 +201,28 @@ class GameScene: SKScene {
         let heartHalfW = heart.size.width * 0.5
         let heartHalfH = heart.size.height * 0.5
         heart.position = CGPoint(x: r.maxX - padding - heartHalfW, y: r.maxY - padding - heartHalfH)
-
         label.position = CGPoint(x: heart.position.x + 25, y: heart.position.y - 1)
     }
 
+    private func positionShotgunHUD() {
+        guard let lbl = shotgunTimerLabel else { return }
+        let r = safeFrame()
+        lbl.position = CGPoint(x: r.midX, y: r.maxY - 24)
+    }
+
+    private func positionHMGHUD() {
+        guard let lbl = hmgTimerLabel else { return }
+        let r = safeFrame()
+        lbl.position = CGPoint(x: r.midX, y: r.maxY - 44) // just below shotgun label
+    }
+
+    private func positionLaserHUD() {
+        guard let lbl = laserTimerLabel else { return }
+        let r = safeFrame()
+        lbl.position = CGPoint(x: r.midX, y: r.maxY - 64) // below HMG label
+    }
+
     func updateHUD() {
-        // Clamp so it never shows negative values
         let lives = max(0, players.first?.lives ?? 0)
         livesLabel?.text = "\(lives)"
     }
@@ -190,23 +280,26 @@ class GameScene: SKScene {
     func proceedToNextLevel() {
         levelNumber += 1
         roundManager?.startRound(in: self)
+
+        // Per-round chance-based spawns
+        attemptSpawnShotgunForRound()
+        attemptSpawnHMGForRound()
+
+        // Laser is test-only at Round 1, so no per-round spawn here
     }
 
     // MARK: - Update loop
     override func update(_ currentTime: TimeInterval) {
         guard let player = players.first else { return }
-
-        // Early out if we've already hit Game Over (no more damage to player)
         if isGameOver { return }
 
-        // Remove dead zombies immediately and keep array in sync
+        // Remove dead zombies and update movement
         zombies = zombies.filter { zombie in
             if zombie.health <= 0 {
                 zombie.removeFromParent()
                 return false
             }
             zombie.update(playerPosition: player.sprite.position)
-            // Only apply damage when not game over and player still has lives
             if (players.first?.lives ?? 0) > 0, zombie.frame.intersects(player.sprite.frame) {
                 player.takeDamage()
                 updateHUD()
@@ -226,9 +319,23 @@ class GameScene: SKScene {
             }
         }
 
+        // Power-up pickups
+        if let pickup = shotgunPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+            handleShotgunPickup()
+        }
+        if let pickup = hmgPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+            handleHMGPickup()
+        }
+        if let pickup = laserPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+            handleLaserPickup()
+        }
+
+        updateShotgunHUD()
+        updateHMGHUD()
+        updateLaserHUD()
         updateHUD()
 
-        // Check if round complete
+        // Round completion
         if zombies.isEmpty,
            roundManager?.zombiesSpawnedThisRound ?? 0 >= roundManager?.maxZombiesThisRound ?? 0 {
             roundManager?.levelCompleted()
@@ -246,7 +353,6 @@ class GameScene: SKScene {
         isGameOver = true
         gameOverAlertPresented = true
 
-        // Stop spawning and pause the scene
         roundManager?.spawnTimer?.invalidate()
         roundManager?.spawnTimer = nil
         isPaused = true
@@ -267,25 +373,27 @@ class GameScene: SKScene {
     }
 
     private func restartSinglePlayer() {
-        // Clean up scene content
         removeAllActions()
 
-        // Remove bullets & zombies nodes
         enumerateChildNodes(withName: "bullet") { node, _ in node.removeFromParent() }
         for z in zombies { z.removeFromParent() }
         zombies.removeAll()
 
-        // Reset player
+        // Reset power-ups & HUD
+        removeShotgunHUD(); shotgunActive = false; shotgunTimeRemaining = 0; roundsSinceShotgunSpawn = 0
+        removeHMGHUD();     hmgActive = false;     hmgTimeRemaining = 0;     roundsSinceHMGSpawn = 0
+        removeLaserHUD();   laserActive = false;   laserTimeRemaining = 0
+
+        shotgunPickupNode?.removeFromParent(); shotgunPickupNode = nil
+        hmgPickupNode?.removeFromParent(); hmgPickupNode = nil
+        laserPickupNode?.removeFromParent(); laserPickupNode = nil
+
         players.removeAll()
         setupPlayer()
-
-        // Reset HUD
         updateHUD()
 
-        // Reset progression
         levelNumber = 1
 
-        // Recreate/Reset RoundManager and start again
         if let levels = LevelLoader.loadLevels() {
             roundManager?.spawnTimer?.invalidate()
             roundManager = RoundManager(levelData: levels)
@@ -295,7 +403,11 @@ class GameScene: SKScene {
             roundManager?.startRound(in: self)
         }
 
-        // Resume scene
+        // Round 1 chance-based spawns and laser test spawn
+        attemptSpawnShotgunForRound()
+        attemptSpawnHMGForRound()
+        spawnLaserPickupAtRound1()
+
         isPaused = false
         isGameOver = false
         gameOverAlertPresented = false
@@ -307,7 +419,6 @@ class GameScene: SKScene {
         container.name = "hamburger"
         container.zPosition = 200
 
-        // Larger invisible tap plate for easier touch
         let plate = SKShapeNode(rectOf: CGSize(width: 56, height: 48), cornerRadius: 8)
         plate.fillColor = .clear
         plate.strokeColor = .clear
@@ -348,12 +459,10 @@ class GameScene: SKScene {
             openSettings()
             return
         }
-        // other touch handling if any...
     }
 
     // MARK: - Settings menu
     func openSettings() {
-        // pause gameplay
         isPaused = true
 
         let overlay = SettingsOverlay(
@@ -444,6 +553,227 @@ class GameScene: SKScene {
         roundManager?.lowEffectsEnabled = lowEffectsEnabled
         roundManager?.spawnFPS30CapHint = fps30CapEnabled
         roundManager?.shadowsDisabled = shadowsDisabled
+    }
+
+    // MARK: - Power-up helpers (Shotgun/HMG)
+
+    private func attemptSpawnShotgunForRound() {
+        guard shotgunPickupNode == nil else { return }
+
+        let roll = Int.random(in: 1...100)
+        var shouldSpawn = (roll <= 10) // 10%
+
+        roundsSinceShotgunSpawn += 1
+        if roundsSinceShotgunSpawn >= 3 { shouldSpawn = true }
+
+        if shouldSpawn {
+            spawnShotgunPickup()
+            roundsSinceShotgunSpawn = 0
+        }
+    }
+
+    private func attemptSpawnHMGForRound() {
+        guard hmgPickupNode == nil else { return }
+
+        let roll = Int.random(in: 1...100)
+        var shouldSpawn = (roll <= 10) // 10%
+
+        roundsSinceHMGSpawn += 1
+        if roundsSinceHMGSpawn >= 5 { shouldSpawn = true } // guarantee every 5 rounds
+
+        if shouldSpawn {
+            spawnHMGPickup()
+            roundsSinceHMGSpawn = 0
+        }
+    }
+
+    private func spawnShotgunPickup() {
+        guard shotgunPickupNode == nil, let player = players.first else { return }
+        let node = SKSpriteNode(imageNamed: "shotgun")
+        node.name = "powerup_shotgun"
+        node.zPosition = 50
+        node.size = CGSize(width: 56, height: 20)
+
+        let r = safeFrame()
+        let x = min(max(r.minX + 80, player.sprite.position.x + 100), r.maxX - 60)
+        let y = min(max(r.minY + 80, player.sprite.position.y), r.maxY - 60)
+        node.position = CGPoint(x: x, y: y)
+        shotgunPickupNode = node
+
+        let up = SKAction.scale(to: 1.06, duration: 0.6)
+        let down = SKAction.scale(to: 0.94, duration: 0.6)
+        node.run(.repeatForever(.sequence([up, down])))
+
+        addChild(node)
+    }
+
+    private func spawnHMGPickup() {
+        guard hmgPickupNode == nil, let player = players.first else { return }
+        let node = SKSpriteNode(imageNamed: "heavyMachineGun")
+        node.name = "powerup_hmg"
+        node.zPosition = 50
+        node.size = CGSize(width: 64, height: 24)
+
+        let r = safeFrame()
+        let x = min(max(r.minX + 80, player.sprite.position.x + 100), r.maxX - 60)
+        let y = min(max(r.minY + 80, player.sprite.position.y - 40), r.maxY - 60)
+        node.position = CGPoint(x: x, y: y)
+        hmgPickupNode = node
+
+        let up = SKAction.scale(to: 1.06, duration: 0.6)
+        let down = SKAction.scale(to: 0.94, duration: 0.6)
+        node.run(.repeatForever(.sequence([up, down])))
+
+        addChild(node)
+    }
+
+    // MARK: - Laser (test spawn at Round 1)
+    private func spawnLaserPickupAtRound1() {
+        guard levelNumber == 1, laserPickupNode == nil, let player = players.first else { return }
+        let node = SKSpriteNode(imageNamed: "lasergun")
+        node.name = "powerup_laser"
+        node.zPosition = 50
+        node.size = CGSize(width: 60, height: 18)
+
+        let r = safeFrame()
+        let x = min(max(r.minX + 80, player.sprite.position.x + 120), r.maxX - 60)
+        let y = min(max(r.minY + 80, player.sprite.position.y + 40), r.maxY - 60)
+        node.position = CGPoint(x: x, y: y)
+        laserPickupNode = node
+
+        let up = SKAction.scale(to: 1.06, duration: 0.6)
+        let down = SKAction.scale(to: 0.94, duration: 0.6)
+        node.run(.repeatForever(.sequence([up, down])))
+
+        addChild(node)
+    }
+
+    private func positionPowerup(_ node: SKSpriteNode?) {
+        guard let node = node else { return }
+        let r = safeFrame()
+        let clampedX = min(max(r.minX + 40, node.position.x), r.maxX - 40)
+        let clampedY = min(max(r.minY + 40, node.position.y), r.maxY - 40)
+        node.position = CGPoint(x: clampedX, y: clampedY)
+    }
+
+    // MARK: - Pickup handlers
+
+    private func handleShotgunPickup() {
+        guard let player = players.first else { return }
+        shotgunPickupNode?.removeFromParent()
+        shotgunPickupNode = nil
+
+        let shotgun = Weapon(type: .shotgun)
+        player.setWeapon(shotgun) // unified muzzle anchor
+
+        shotgunActive = true
+        shotgunTimeRemaining = 10.0 // firing-only
+        showShotgunHUD()
+        updateShotgunHUD()
+    }
+
+    private func handleHMGPickup() {
+        guard let player = players.first else { return }
+        hmgPickupNode?.removeFromParent()
+        hmgPickupNode = nil
+
+        let hmg = Weapon(type: .heavyMachineGun)
+        player.setWeapon(hmg) // unified muzzle anchor
+
+        hmgActive = true
+        hmgTimeRemaining = 12.0 // firing-only
+        showHMGHUD()
+        updateHMGHUD()
+    }
+
+    private func handleLaserPickup() {
+        guard let player = players.first else { return }
+        laserPickupNode?.removeFromParent()
+        laserPickupNode = nil
+
+        let laser = Weapon(type: .laserGun)
+        player.setWeapon(laser) // unified muzzle anchor
+
+        laserActive = true
+        laserTimeRemaining = 7.0 // firing-only
+        showLaserHUD()
+        updateLaserHUD()
+    }
+
+    // MARK: - Firing-time timers
+    @objc private func onPlayerFiredShot(_ note: Notification) {
+        guard let dt = note.userInfo?["fireInterval"] as? TimeInterval else { return }
+
+        if shotgunActive {
+            shotgunTimeRemaining -= dt
+            if shotgunTimeRemaining <= 0 { endShotgunPowerup() } else { updateShotgunHUD() }
+        }
+        if hmgActive {
+            hmgTimeRemaining -= dt
+            if hmgTimeRemaining <= 0 { endHMGPowerup() } else { updateHMGHUD() }
+        }
+        if laserActive {
+            laserTimeRemaining -= dt
+            if laserTimeRemaining <= 0 { endLaserPowerup() } else { updateLaserHUD() }
+        }
+    }
+
+    private func endShotgunPowerup() {
+        guard shotgunActive, let player = players.first else { return }
+        shotgunActive = false
+        shotgunTimeRemaining = 0
+        let defaultMG = Weapon(type: .machineGun)
+        player.setWeapon(defaultMG)
+        removeShotgunHUD()
+    }
+
+    private func endHMGPowerup() {
+        guard hmgActive, let player = players.first else { return }
+        hmgActive = false
+        hmgTimeRemaining = 0
+        let defaultMG = Weapon(type: .machineGun)
+        player.setWeapon(defaultMG)
+        removeHMGHUD()
+    }
+
+    private func endLaserPowerup() {
+        guard laserActive, let player = players.first else { return }
+        laserActive = false
+        laserTimeRemaining = 0
+        let defaultMG = Weapon(type: .machineGun)
+        player.setWeapon(defaultMG)
+        removeLaserHUD()
+    }
+
+    // MARK: - HUD helpers
+    private func showShotgunHUD() { shotgunTimerLabel?.isHidden = false }
+    private func removeShotgunHUD() { shotgunTimerLabel?.isHidden = true; shotgunTimerLabel?.text = "" }
+    private func updateShotgunHUD() {
+        guard let lbl = shotgunTimerLabel else { return }
+        guard shotgunActive else { lbl.isHidden = true; return }
+        lbl.isHidden = false
+        let t = max(0, shotgunTimeRemaining)
+        lbl.text = String(format: "Shotgun: %.1fs", t)
+    }
+
+    private func showHMGHUD() { hmgTimerLabel?.isHidden = false }
+    private func removeHMGHUD() { hmgTimerLabel?.isHidden = true; hmgTimerLabel?.text = "" }
+    private func updateHMGHUD() {
+        guard let lbl = hmgTimerLabel else { return }
+        guard hmgActive else { lbl.isHidden = true; return }
+        lbl.isHidden = false
+        let t = max(0, hmgTimeRemaining)
+        lbl.text = String(format: "HMG: %.1fs", t)
+    }
+
+    private func showLaserHUD() { laserTimerLabel?.isHidden = false }
+    private func removeLaserHUD() { laserTimerLabel?.isHidden = true; laserTimerLabel?.text = "" }
+    private func updateLaserHUD() {
+        guard let lbl = laserTimerLabel else { return }
+        guard laserActive else { lbl.isHidden = true; return }
+        lbl.isHidden = false
+        let t = max(0, laserTimeRemaining)
+        lbl.text = String(format: "Laser: %.1fs", t)
     }
 }
 
