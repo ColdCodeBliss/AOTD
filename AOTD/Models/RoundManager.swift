@@ -4,7 +4,7 @@ class RoundManager {
     var currentRound: Int = 0
     var maxRounds: Int { return levelData.count }
     var levelData: [Level]
-    
+
     // Reference to the GameScene
     weak var scene: GameScene?
 
@@ -12,6 +12,11 @@ class RoundManager {
     var zombiesSpawnedThisRound: Int = 0
     var maxZombiesThisRound: Int = 0
     var spawnTimer: Timer?
+
+    // Graphics/perf hints (set by GameScene)
+    var lowEffectsEnabled: Bool = false
+    var spawnFPS30CapHint: Bool = false
+    var shadowsDisabled: Bool = false
 
     init(levelData: [Level]) {
         self.levelData = levelData
@@ -34,7 +39,8 @@ class RoundManager {
 
     private func startSpawningZombies(for level: Level) {
         spawnTimer?.invalidate()
-        spawnTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let interval = lowEffectsEnabled ? 1.25 : 1.0 // slightly slower when low effects
+        spawnTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.spawnZombies(level: level)
         }
     }
@@ -47,8 +53,10 @@ class RoundManager {
             return
         }
 
-        // Spawn in small groups (max 3 alive at once)
-        let maxActiveZombies = min(3, maxZombiesThisRound - zombiesSpawnedThisRound)
+        // Max active zombies at once
+        let cap = lowEffectsEnabled ? 2 : 3
+        let maxActiveZombies = min(cap, maxZombiesThisRound - zombiesSpawnedThisRound)
+
         let zombiesToSpawn = maxActiveZombies - scene.zombies.count
         guard zombiesToSpawn > 0 else { return }
 
