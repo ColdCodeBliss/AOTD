@@ -64,10 +64,15 @@ class GameScene: SKScene {
         }
 
         applyGraphicsToManagersAndView()
+
+        // Ensure initial layout respects safe areas (after views are attached)
+        positionHUD()
+        positionHamburger()
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
+        // These are now nil-safe; they’ll early-return if nodes aren’t created yet.
         positionHUD()
         positionHamburger()
     }
@@ -90,12 +95,9 @@ class GameScene: SKScene {
 
     // MARK: - HUD Setup
     func setupHUD() {
-        guard let viewSize = view?.bounds.size else { return }
-
         // Heart icon
         livesHeart = SKSpriteNode(imageNamed: "heart")
         livesHeart.size = CGSize(width: 30, height: 30)
-        livesHeart.position = CGPoint(x: viewSize.width - 60, y: viewSize.height - 40)
         livesHeart.zPosition = 100
         addChild(livesHeart)
 
@@ -105,20 +107,44 @@ class GameScene: SKScene {
         livesLabel.fontColor = .white
         livesLabel.horizontalAlignmentMode = .left
         livesLabel.verticalAlignmentMode = .center
-        livesLabel.position = CGPoint(x: livesHeart.position.x + 25, y: livesHeart.position.y)
         livesLabel.zPosition = 100
         livesLabel.text = "\(players.first?.lives ?? 3)"
         addChild(livesLabel)
+
+        positionHUD()
+    }
+
+    // Safe-area helpers
+    private func safeAreaInsets() -> UIEdgeInsets {
+        view?.window?.safeAreaInsets ?? .zero
+    }
+    private func safeFrame() -> CGRect {
+        let sz = view?.bounds.size ?? size
+        return CGRect(origin: .zero, size: sz).inset(by: safeAreaInsets())
     }
 
     func positionHUD() {
-        guard let viewSize = view?.bounds.size else { return }
-        livesHeart.position = CGPoint(x: viewSize.width - 60, y: viewSize.height - 40)
-        livesLabel.position = CGPoint(x: livesHeart.position.x + 25, y: livesHeart.position.y)
+        // Nil-safe: if HUD hasn’t been created yet, do nothing (prevents crash on early didChangeSize).
+        guard let heart = livesHeart, let label = livesLabel else { return }
+
+        let r = safeFrame()
+        let padding: CGFloat = 12
+
+        let heartHalfW = heart.size.width * 0.5
+        let heartHalfH = heart.size.height * 0.5
+        heart.position = CGPoint(
+            x: r.maxX - padding - heartHalfW,
+            y: r.maxY - padding - heartHalfH
+        )
+
+        label.position = CGPoint(
+            x: heart.position.x + 25,
+            y: heart.position.y - 1
+        )
     }
 
     func updateHUD() {
-        livesLabel.text = "\(players.first?.lives ?? 0)"
+        livesLabel?.text = "\(players.first?.lives ?? 0)"
     }
 
     // MARK: - Countdown and Level Start (called by RoundManager)
@@ -220,12 +246,16 @@ class GameScene: SKScene {
         container.name = "hamburger"
         container.zPosition = 200
 
-        let size = CGSize(width: 32, height: 24)
-        let barH: CGFloat = 3
-        let yOffsets: [CGFloat] = [8, 0, -8]
+        // Larger invisible tap plate for easier touch
+        let plate = SKShapeNode(rectOf: CGSize(width: 56, height: 48), cornerRadius: 8)
+        plate.fillColor = .clear
+        plate.strokeColor = .clear
+        container.addChild(plate)
 
-        for y in yOffsets {
-            let bar = SKShapeNode(rectOf: CGSize(width: size.width, height: barH), cornerRadius: 1.2)
+        let barsSize = CGSize(width: 32, height: 24)
+        let barH: CGFloat = 3
+        for y: CGFloat in [8, 0, -8] {
+            let bar = SKShapeNode(rectOf: CGSize(width: barsSize.width, height: barH), cornerRadius: 1.2)
             bar.fillColor = .white
             bar.strokeColor = .clear
             bar.position = CGPoint(x: 0, y: y)
@@ -238,12 +268,15 @@ class GameScene: SKScene {
     }
 
     private func positionHamburger() {
-        guard let viewSize = view?.bounds.size, let node = hamburgerNode else { return }
-        let padding: CGFloat = 18
-        // Move to TOP-LEFT instead of TOP-RIGHT
-        node.position = CGPoint(x: padding, y: viewSize.height - padding)
+        guard let node = hamburgerNode else { return }
+        let r = safeFrame()
+        let padding: CGFloat = 12
+        let bbox = node.calculateAccumulatedFrame()
+        node.position = CGPoint(
+            x: r.minX + padding + bbox.width * 0.5,
+            y: r.maxY - padding - bbox.height * 0.5
+        )
     }
-
 
     // MARK: - Touches
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
