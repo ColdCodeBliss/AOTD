@@ -7,15 +7,18 @@ class Player {
     var armorBuffActive: Bool = false
     var isInvulnerable: Bool = false
     var currentWeapon: Weapon
-    
+
     // Timer for automatic shooting
     private var shootingTimer: Timer?
+    var isShooting: Bool = false
+    private var currentShootingDirection: CGVector = CGVector(dx: 0, dy: 1) // default up
 
     init(sprite: SKSpriteNode, weapon: Weapon) {
         self.sprite = sprite
         self.currentWeapon = weapon
     }
 
+    // MARK: - Movement & Rotation
     func move(direction: CGVector) {
         let dx = direction.dx * speed
         let dy = direction.dy * speed
@@ -25,26 +28,43 @@ class Player {
 
     func rotateToDirection(direction: CGVector) {
         sprite.zRotation = atan2(direction.dy, direction.dx)
+        // Update current shooting direction as well
+        currentShootingDirection = direction
     }
 
-    // Start continuous shooting
-    func startShooting(direction: CGVector, in scene: SKScene) {
-        stopShooting() // ensure no duplicate timers
+    // MARK: - Shooting
+    func startShooting(in scene: SKScene) {
+        guard !isShooting else { return }
+        isShooting = true
 
-        shootingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        shootingTimer = Timer.scheduledTimer(withTimeInterval: currentWeapon.fireRate, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            self.currentWeapon.fire(from: self.sprite.position, direction: direction, in: scene)
+            // Always use the latest joystick direction
+            self.currentWeapon.fire(from: self.sprite.position, direction: self.currentShootingDirection, in: scene)
         }
     }
 
-    // Stop continuous shooting
     func stopShooting() {
         shootingTimer?.invalidate()
         shootingTimer = nil
+        isShooting = false
     }
 
+    func updateShootingDirection(direction: CGVector) {
+        currentShootingDirection = direction
+        rotateToDirection(direction: direction)
+    }
+
+    // MARK: - Damage Handling
     func takeDamage() {
         guard !isInvulnerable else { return }
+
+        if armorBuffActive {
+            armorBuffActive = false
+            print("Armor absorbed damage! Player still has \(lives) lives.")
+            respawn()
+            return
+        }
 
         lives -= 1
         print("Player hit! Lives remaining: \(lives)")
@@ -56,9 +76,16 @@ class Player {
         }
     }
 
+    func activateArmorBuff() {
+        armorBuffActive = true
+        print("Armor buff activated!")
+    }
+
+    // MARK: - Respawn & Invulnerability
     func respawn() {
-        sprite.position = CGPoint(x: sprite.scene!.size.width/2,
-                                  y: sprite.scene!.size.height/2)
+        guard let scene = sprite.scene else { return }
+
+        sprite.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
         isInvulnerable = true
 
         let fadeOut = SKAction.fadeAlpha(to: 0.2, duration: 0.3)
@@ -70,11 +97,7 @@ class Player {
         }
     }
 
-    func activateArmorBuff() {
-        armorBuffActive = true
-        print("Armor buff activated!")
-    }
-
+    // MARK: - Death
     func die() {
         print("Player has died!")
         sprite.removeFromParent()

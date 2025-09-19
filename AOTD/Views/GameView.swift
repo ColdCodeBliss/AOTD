@@ -25,30 +25,31 @@ struct GameView: View {
                     HStack {
                         // Left joystick: movement
                         VirtualJoystickView(isShootingJoystick: false) { vector in
-                            playerDirection = vector
+                            // Invert Y-axis for SpriteKit coordinate system
+                            let correctedVector = CGVector(dx: vector.dx, dy: -vector.dy)
+                            playerDirection = correctedVector
                             if let player = scene?.players.first {
-                                player.move(direction: vector)
+                                player.move(direction: correctedVector)
                             }
                         }
-
                         Spacer()
-
-                        // Right joystick: shooting
-                        VirtualJoystickView(isShootingJoystick: true,
-                                            onMove: { vector in
-                            shootingDirection = vector
+                        
+                        //right joystick
+                        VirtualJoystickView(isShootingJoystick: true) { vector in
+                            let correctedVector = CGVector(dx: vector.dx, dy: -vector.dy)
+                            shootingDirection = correctedVector
                             if let player = scene?.players.first, let scene = scene {
-                                player.rotateToDirection(direction: vector)
-                                // Start continuous shooting while joystick is held
-                                player.startShooting(direction: vector, in: scene)
+                                player.updateShootingDirection(direction: correctedVector)
+                                if !player.isShooting {
+                                    player.startShooting(in: scene)
+                                }
                             }
-                        },
-                                            onRelease: {
-                            // Stop shooting when joystick is released
+                        } onRelease: {
                             if let player = scene?.players.first {
                                 player.stopShooting()
                             }
-                        })
+                        }
+
                     }
                     .padding()
                 }

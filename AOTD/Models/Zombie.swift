@@ -3,6 +3,7 @@ import SpriteKit
 class Zombie: SKSpriteNode {
     var moveSpeed: CGFloat = 2.0
     var health: Int = 1
+    var maxHealth: Int = 1
     private var isDead = false
 
     func update(playerPosition: CGPoint) {
