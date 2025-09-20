@@ -94,12 +94,7 @@ class GameScene: SKScene {
         // Chance-based powerups
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-
-        // Laser test: spawn at start of Round 1 (tiny delay so safe-area is ready)
-        run(.sequence([
-            .wait(forDuration: 0.05),
-            .run { [weak self] in self?.spawnLaserPickupAtRound1() }
-        ]))
+        attemptSpawnLaserForRound()   // NEW: 10% chance when levelNumber >= 6
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -188,7 +183,7 @@ class GameScene: SKScene {
 
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-        // Laser test remains only at Round 1
+        attemptSpawnLaserForRound()   // NEW: 10% chance when levelNumber >= 6
     }
 
     // MARK: - Update loop

@@ -176,7 +176,7 @@ extension GameScene {
 
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-        run(.sequence([.wait(forDuration: 0.05), .run { [weak self] in self?.spawnLaserPickupAtRound1() }]))
+        attemptSpawnLaserForRound()
 
         isPaused = false
         isGameOver = false

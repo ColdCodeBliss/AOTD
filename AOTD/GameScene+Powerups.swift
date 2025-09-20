@@ -27,6 +27,14 @@ extension GameScene {
         if shouldSpawn { spawnHMGPickup(); roundsSinceHMGSpawn = 0 }
     }
 
+    /// 10% chance to spawn the laser gun on any round **after round 5**.
+    func attemptSpawnLaserForRound() {
+        guard levelNumber >= 6 else { return }      // rounds > 5
+        guard laserPickupNode == nil else { return }
+        let roll = Int.random(in: 1...100)
+        if roll <= 10 { spawnLaserPickup() }
+    }
+
     // MARK: Spawn positions
     func spawnShotgunPickup() {
         guard shotgunPickupNode == nil, let player = players.first else { return }
@@ -62,8 +70,8 @@ extension GameScene {
         attachDespawnTimerAndFlashing(to: node, kind: .hmg)
     }
 
-    func spawnLaserPickupAtRound1() {
-        guard levelNumber == 1, laserPickupNode == nil, let player = players.first else { return }
+    private func spawnLaserPickup() {
+        guard laserPickupNode == nil, let player = players.first else { return }
         let node = SKSpriteNode(imageNamed: "lasergun")
         node.name = "powerup_laser"
         node.zPosition = 50
