@@ -94,12 +94,15 @@ class GameScene: SKScene {
         positionHUD()
         positionHamburger()
 
-        // Round 1 evaluation for chance-based powerups
+        // Chance-based powerups
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
 
-        // Laser test: spawn at start of Round 1
-        spawnLaserPickupAtRound1()
+        // Laser test: spawn at start of Round 1 (tiny delay so safe-area is ready)
+        run(.sequence([
+            .wait(forDuration: 0.05),
+            .run { [weak self] in self?.spawnLaserPickupAtRound1() }
+        ]))
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -173,7 +176,7 @@ class GameScene: SKScene {
         // Laser timer HUD
         let lLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
         lLabel.fontSize = 18
-        lLabel.fontColor = SKColor(cgColor: CGColor(red: 0.4, green: 0.95, blue: 1.0, alpha: 1.0)) // teal/cyan
+        lLabel.fontColor = SKColor(cgColor: CGColor(red: 0.4, green: 0.95, blue: 1.0, alpha: 1.0))
         lLabel.zPosition = 101
         lLabel.text = ""
         lLabel.isHidden = true
@@ -213,13 +216,13 @@ class GameScene: SKScene {
     private func positionHMGHUD() {
         guard let lbl = hmgTimerLabel else { return }
         let r = safeFrame()
-        lbl.position = CGPoint(x: r.midX, y: r.maxY - 44) // just below shotgun label
+        lbl.position = CGPoint(x: r.midX, y: r.maxY - 44)
     }
 
     private func positionLaserHUD() {
         guard let lbl = laserTimerLabel else { return }
         let r = safeFrame()
-        lbl.position = CGPoint(x: r.midX, y: r.maxY - 64) // below HMG label
+        lbl.position = CGPoint(x: r.midX, y: r.maxY - 64)
     }
 
     func updateHUD() {
@@ -284,8 +287,7 @@ class GameScene: SKScene {
         // Per-round chance-based spawns
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-
-        // Laser is test-only at Round 1, so no per-round spawn here
+        // Laser test remains only at Round 1
     }
 
     // MARK: - Update loop
@@ -293,7 +295,7 @@ class GameScene: SKScene {
         guard let player = players.first else { return }
         if isGameOver { return }
 
-        // Remove dead zombies and update movement
+        // Remove dead zombies & move them
         zombies = zombies.filter { zombie in
             if zombie.health <= 0 {
                 zombie.removeFromParent()
@@ -308,25 +310,49 @@ class GameScene: SKScene {
             return true
         }
 
-        // Bullet collisions
+        // Bullet collisions & ricochets
         enumerateChildNodes(withName: "bullet") { node, _ in
             guard let bullet = node as? SKSpriteNode else { return }
+            let isLaser = (bullet.userData?["isLaser"] as? NSNumber)?.boolValue ?? false
+
+            // Hit zombies
             for zombie in self.zombies {
                 if bullet.frame.intersects(zombie.frame) {
                     zombie.takeDamage(amount: player.currentWeapon.damage)
-                    bullet.removeFromParent()
+                    if isLaser {
+                        if self.ricochetLaserBulletOffZombie(bullet, zombieCenter: zombie.position) {
+                            break
+                        } else {
+                            bullet.removeAllActions()
+                            bullet.removeFromParent()
+                            break
+                        }
+                    } else {
+                        bullet.removeAllActions()
+                        bullet.removeFromParent()
+                        break
+                    }
                 }
             }
         }
 
-        // Power-up pickups
-        if let pickup = shotgunPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+        // Laser bullets: bounce off screen bounds
+        enumerateChildNodes(withName: "bullet") { node, _ in
+            guard let b = node as? SKSpriteNode else { return }
+            let isLaser = (b.userData?["isLaser"] as? NSNumber)?.boolValue ?? false
+            if isLaser {
+                self.handleLaserBulletBounds(b)
+            }
+        }
+
+        // Power-up pickups (distance-based overlap)
+        if let pickup = shotgunPickupNode, pickup.parent != nil, playerIsOverlapping(pickup) {
             handleShotgunPickup()
         }
-        if let pickup = hmgPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+        if let pickup = hmgPickupNode, pickup.parent != nil, playerIsOverlapping(pickup) {
             handleHMGPickup()
         }
-        if let pickup = laserPickupNode, pickup.parent != nil, pickup.frame.intersects(player.sprite.frame) {
+        if let pickup = laserPickupNode, pickup.parent != nil, playerIsOverlapping(pickup) {
             handleLaserPickup()
         }
 
@@ -340,6 +366,19 @@ class GameScene: SKScene {
            roundManager?.zombiesSpawnedThisRound ?? 0 >= roundManager?.maxZombiesThisRound ?? 0 {
             roundManager?.levelCompleted()
         }
+    }
+
+    // Robust overlap test
+    private func playerIsOverlapping(_ node: SKNode, playerRadius: CGFloat = 28) -> Bool {
+        guard let player = players.first else { return false }
+        let p = player.sprite.position
+        let n = node.position
+        let dx = p.x - n.x
+        let dy = p.y - n.y
+        let dist2 = dx*dx + dy*dy
+        let nodeRadius: CGFloat = (node as? SKSpriteNode).map { max($0.size.width, $0.size.height) * 0.5 } ?? 24
+        let r = playerRadius + nodeRadius
+        return dist2 <= r*r
     }
 
     private func checkForGameOver() {
@@ -403,10 +442,9 @@ class GameScene: SKScene {
             roundManager?.startRound(in: self)
         }
 
-        // Round 1 chance-based spawns and laser test spawn
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-        spawnLaserPickupAtRound1()
+        run(.sequence([.wait(forDuration: 0.05), .run { [weak self] in self?.spawnLaserPickupAtRound1() }]))
 
         isPaused = false
         isGameOver = false
@@ -555,36 +593,23 @@ class GameScene: SKScene {
         roundManager?.shadowsDisabled = shadowsDisabled
     }
 
-    // MARK: - Power-up helpers (Shotgun/HMG)
-
+    // MARK: - Power-up spawn logic
     private func attemptSpawnShotgunForRound() {
         guard shotgunPickupNode == nil else { return }
-
         let roll = Int.random(in: 1...100)
-        var shouldSpawn = (roll <= 10) // 10%
-
+        var shouldSpawn = (roll <= 10)
         roundsSinceShotgunSpawn += 1
         if roundsSinceShotgunSpawn >= 3 { shouldSpawn = true }
-
-        if shouldSpawn {
-            spawnShotgunPickup()
-            roundsSinceShotgunSpawn = 0
-        }
+        if shouldSpawn { spawnShotgunPickup(); roundsSinceShotgunSpawn = 0 }
     }
 
     private func attemptSpawnHMGForRound() {
         guard hmgPickupNode == nil else { return }
-
         let roll = Int.random(in: 1...100)
-        var shouldSpawn = (roll <= 10) // 10%
-
+        var shouldSpawn = (roll <= 10)
         roundsSinceHMGSpawn += 1
-        if roundsSinceHMGSpawn >= 5 { shouldSpawn = true } // guarantee every 5 rounds
-
-        if shouldSpawn {
-            spawnHMGPickup()
-            roundsSinceHMGSpawn = 0
-        }
+        if roundsSinceHMGSpawn >= 5 { shouldSpawn = true }
+        if shouldSpawn { spawnHMGPickup(); roundsSinceHMGSpawn = 0 }
     }
 
     private func spawnShotgunPickup() {
@@ -599,12 +624,9 @@ class GameScene: SKScene {
         let y = min(max(r.minY + 80, player.sprite.position.y), r.maxY - 60)
         node.position = CGPoint(x: x, y: y)
         shotgunPickupNode = node
-
-        let up = SKAction.scale(to: 1.06, duration: 0.6)
-        let down = SKAction.scale(to: 0.94, duration: 0.6)
-        node.run(.repeatForever(.sequence([up, down])))
-
         addChild(node)
+
+        attachDespawnTimerAndFlashing(to: node, kind: .shotgun)
     }
 
     private func spawnHMGPickup() {
@@ -619,15 +641,11 @@ class GameScene: SKScene {
         let y = min(max(r.minY + 80, player.sprite.position.y - 40), r.maxY - 60)
         node.position = CGPoint(x: x, y: y)
         hmgPickupNode = node
-
-        let up = SKAction.scale(to: 1.06, duration: 0.6)
-        let down = SKAction.scale(to: 0.94, duration: 0.6)
-        node.run(.repeatForever(.sequence([up, down])))
-
         addChild(node)
+
+        attachDespawnTimerAndFlashing(to: node, kind: .hmg)
     }
 
-    // MARK: - Laser (test spawn at Round 1)
     private func spawnLaserPickupAtRound1() {
         guard levelNumber == 1, laserPickupNode == nil, let player = players.first else { return }
         let node = SKSpriteNode(imageNamed: "lasergun")
@@ -640,12 +658,9 @@ class GameScene: SKScene {
         let y = min(max(r.minY + 80, player.sprite.position.y + 40), r.maxY - 60)
         node.position = CGPoint(x: x, y: y)
         laserPickupNode = node
-
-        let up = SKAction.scale(to: 1.06, duration: 0.6)
-        let down = SKAction.scale(to: 0.94, duration: 0.6)
-        node.run(.repeatForever(.sequence([up, down])))
-
         addChild(node)
+
+        attachDespawnTimerAndFlashing(to: node, kind: .laser)
     }
 
     private func positionPowerup(_ node: SKSpriteNode?) {
@@ -657,45 +672,47 @@ class GameScene: SKScene {
     }
 
     // MARK: - Pickup handlers
-
     private func handleShotgunPickup() {
         guard let player = players.first else { return }
+        shotgunPickupNode?.removeAllActions()
         shotgunPickupNode?.removeFromParent()
         shotgunPickupNode = nil
 
         let shotgun = Weapon(type: .shotgun)
-        player.setWeapon(shotgun) // unified muzzle anchor
+        player.setWeapon(shotgun)
 
         shotgunActive = true
-        shotgunTimeRemaining = 10.0 // firing-only
+        shotgunTimeRemaining = 10.0
         showShotgunHUD()
         updateShotgunHUD()
     }
 
     private func handleHMGPickup() {
         guard let player = players.first else { return }
+        hmgPickupNode?.removeAllActions()
         hmgPickupNode?.removeFromParent()
         hmgPickupNode = nil
 
         let hmg = Weapon(type: .heavyMachineGun)
-        player.setWeapon(hmg) // unified muzzle anchor
+        player.setWeapon(hmg)
 
         hmgActive = true
-        hmgTimeRemaining = 12.0 // firing-only
+        hmgTimeRemaining = 12.0
         showHMGHUD()
         updateHMGHUD()
     }
 
     private func handleLaserPickup() {
         guard let player = players.first else { return }
+        laserPickupNode?.removeAllActions()
         laserPickupNode?.removeFromParent()
         laserPickupNode = nil
 
         let laser = Weapon(type: .laserGun)
-        player.setWeapon(laser) // unified muzzle anchor
+        player.setWeapon(laser)
 
         laserActive = true
-        laserTimeRemaining = 7.0 // firing-only
+        laserTimeRemaining = 7.0
         showLaserHUD()
         updateLaserHUD()
     }
@@ -703,7 +720,6 @@ class GameScene: SKScene {
     // MARK: - Firing-time timers
     @objc private func onPlayerFiredShot(_ note: Notification) {
         guard let dt = note.userInfo?["fireInterval"] as? TimeInterval else { return }
-
         if shotgunActive {
             shotgunTimeRemaining -= dt
             if shotgunTimeRemaining <= 0 { endShotgunPowerup() } else { updateShotgunHUD() }
@@ -722,8 +738,7 @@ class GameScene: SKScene {
         guard shotgunActive, let player = players.first else { return }
         shotgunActive = false
         shotgunTimeRemaining = 0
-        let defaultMG = Weapon(type: .machineGun)
-        player.setWeapon(defaultMG)
+        player.setWeapon(Weapon(type: .machineGun))
         removeShotgunHUD()
     }
 
@@ -731,8 +746,7 @@ class GameScene: SKScene {
         guard hmgActive, let player = players.first else { return }
         hmgActive = false
         hmgTimeRemaining = 0
-        let defaultMG = Weapon(type: .machineGun)
-        player.setWeapon(defaultMG)
+        player.setWeapon(Weapon(type: .machineGun))
         removeHMGHUD()
     }
 
@@ -740,8 +754,7 @@ class GameScene: SKScene {
         guard laserActive, let player = players.first else { return }
         laserActive = false
         laserTimeRemaining = 0
-        let defaultMG = Weapon(type: .machineGun)
-        player.setWeapon(defaultMG)
+        player.setWeapon(Weapon(type: .machineGun))
         removeLaserHUD()
     }
 
@@ -774,6 +787,149 @@ class GameScene: SKScene {
         lbl.isHidden = false
         let t = max(0, laserTimeRemaining)
         lbl.text = String(format: "Laser: %.1fs", t)
+    }
+
+    // ============================================================
+    // MARK: - Laser ricochet helpers
+    // ============================================================
+
+    private func getLaserVelocity(_ bullet: SKSpriteNode) -> CGVector {
+        let vx = (bullet.userData?["vx"] as? NSNumber)?.doubleValue ?? 0.0
+        let vy = (bullet.userData?["vy"] as? NSNumber)?.doubleValue ?? 0.0
+        return CGVector(dx: vx, dy: vy)
+    }
+
+    private func setLaserVelocity(_ bullet: SKSpriteNode, v: CGVector) {
+        bullet.userData?["vx"] = NSNumber(value: Double(v.dx))
+        bullet.userData?["vy"] = NSNumber(value: Double(v.dy))
+        bullet.removeAllActions()
+        let step: CGFloat = 0.05
+        let move = SKAction.repeatForever(SKAction.move(by: v, duration: step))
+        bullet.run(move)
+        bullet.zRotation = atan2(v.dy, v.dx)
+    }
+
+    private func decBounce(_ bullet: SKSpriteNode) -> Int {
+        let left = max(0, (bullet.userData?["bouncesLeft"] as? NSNumber)?.intValue ?? 0)
+        let newVal = max(0, left - 1)
+        bullet.userData?["bouncesLeft"] = NSNumber(value: newVal)
+        return newVal
+    }
+
+    private func ricochetLaserBulletOffZombie(_ bullet: SKSpriteNode, zombieCenter: CGPoint) -> Bool {
+        let left = (bullet.userData?["bouncesLeft"] as? NSNumber)?.intValue ?? 0
+        guard left > 0 else { return false }
+
+        let v = getLaserVelocity(bullet)
+        var n = CGVector(dx: bullet.position.x - zombieCenter.x,
+                         dy: bullet.position.y - zombieCenter.y)
+        let nlen = max(0.0001, sqrt(n.dx*n.dx + n.dy*n.dy))
+        n = CGVector(dx: n.dx / nlen, dy: n.dy / nlen)
+
+        let dot = v.dx * n.dx + v.dy * n.dy
+        let vPrime = CGVector(dx: v.dx - 2 * dot * n.dx,
+                              dy: v.dy - 2 * dot * n.dy)
+
+        setLaserVelocity(bullet, v: vPrime)
+        _ = decBounce(bullet)
+        return true
+    }
+
+    private func handleLaserBulletBounds(_ bullet: SKSpriteNode) {
+        let isLaser = (bullet.userData?["isLaser"] as? NSNumber)?.boolValue ?? false
+        guard isLaser else { return }
+        let left = (bullet.userData?["bouncesLeft"] as? NSNumber)?.intValue ?? 0
+
+        let r = safeFrame()
+        let margin: CGFloat = 4
+
+        var bounced = false
+        var v = getLaserVelocity(bullet)
+
+        if bullet.position.x <= r.minX + margin {
+            if left > 0 { v.dx = abs(v.dx); bounced = true }
+            else { bullet.removeFromParent(); return }
+        } else if bullet.position.x >= r.maxX - margin {
+            if left > 0 { v.dx = -abs(v.dx); bounced = true }
+            else { bullet.removeFromParent(); return }
+        }
+
+        if bullet.position.y <= r.minY + margin {
+            if left > 0 { v.dy = abs(v.dy); bounced = true }
+            else { bullet.removeFromParent(); return }
+        } else if bullet.position.y >= r.maxY - margin {
+            if left > 0 { v.dy = -abs(v.dy); bounced = true }
+            else { bullet.removeFromParent(); return }
+        }
+
+        if bounced {
+            setLaserVelocity(bullet, v: v)
+            _ = decBounce(bullet)
+            bullet.position.x = min(max(bullet.position.x, r.minX + margin), r.maxX - margin)
+            bullet.position.y = min(max(bullet.position.y, r.minY + margin), r.maxY - margin)
+        }
+    }
+
+    // ============================================================
+    // MARK: - Power-up lifetime + flashing
+    // ============================================================
+
+    private enum PowerupKind { case shotgun, hmg, laser }
+
+    /// Attaches a 15s despawn with accelerating flash as the end approaches.
+    private func attachDespawnTimerAndFlashing(to node: SKSpriteNode, kind: PowerupKind, lifetime: TimeInterval = 15.0) {
+        // Store despawn timestamp and last toggle time
+        let now = CACurrentMediaTime()
+        let despawnAt = now + lifetime
+        let data = node.userData ?? NSMutableDictionary()
+        data["despawnAt"] = NSNumber(value: despawnAt)
+        data["lastToggle"] = NSNumber(value: now)
+        data["flashOn"] = NSNumber(booleanLiteral: true)
+        node.userData = data
+
+        node.alpha = 1.0
+
+        // Tick every 0.05s
+        let tick = SKAction.repeatForever(.sequence([
+            .wait(forDuration: 0.05),
+            .run { [weak self, weak node] in
+                guard let self = self, let n = node, n.parent != nil else { return }
+                let now = CACurrentMediaTime()
+                let end = (n.userData?["despawnAt"] as? NSNumber)?.doubleValue ?? now
+                var last = (n.userData?["lastToggle"] as? NSNumber)?.doubleValue ?? now
+                var on = (n.userData?["flashOn"] as? NSNumber)?.boolValue ?? true
+
+                let remaining = end - now
+                if remaining <= 0 {
+                    // Remove and clear references
+                    n.removeAllActions()
+                    n.removeFromParent()
+                    switch kind {
+                    case .shotgun: if self.shotgunPickupNode === n { self.shotgunPickupNode = nil }
+                    case .hmg:     if self.hmgPickupNode === n     { self.hmgPickupNode = nil }
+                    case .laser:   if self.laserPickupNode === n   { self.laserPickupNode = nil }
+                    }
+                    return
+                }
+
+                // Determine current flash interval from remaining time
+                let interval: Double
+                if remaining > 10 { interval = 0.60 }
+                else if remaining > 5 { interval = 0.30 }
+                else if remaining > 2 { interval = 0.15 }
+                else { interval = 0.08 } // fastest near despawn
+
+                if now - last >= interval {
+                    // Toggle alpha between 1.0 and 0.25
+                    on.toggle()
+                    n.alpha = on ? 1.0 : 0.25
+                    last = now
+                    n.userData?["lastToggle"] = NSNumber(value: last)
+                    n.userData?["flashOn"] = NSNumber(booleanLiteral: on)
+                }
+            }
+        ]))
+        node.run(tick, withKey: "powerupLifetime")
     }
 }
 
