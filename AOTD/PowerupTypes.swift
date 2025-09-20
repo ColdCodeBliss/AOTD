@@ -6,3 +6,5 @@
 //
 
 import Foundation
+
+enum PowerupKind { case shotgun, hmg, laser }
