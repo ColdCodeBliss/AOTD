@@ -16,6 +16,11 @@ class GameScene: SKScene {
     var roundManager: RoundManager?
     var levelNumber: Int = 1
 
+    // === Scoring (NEW) ===
+    var scoreManager = ScoreManager()
+    private var scoreLabel: SKLabelNode!
+    private var multLabel: SKLabelNode!
+
     // MARK: - HUD (owned here, implemented in +HUD)
     var livesLabel: SKLabelNode!
     var livesHeart: SKSpriteNode!
@@ -72,8 +77,12 @@ class GameScene: SKScene {
         backgroundColor = .brown
         print("GameScene loaded")
 
+        // Scoring delegate
+        scoreManager.delegate = self
+
         setupPlayer()
         setupHUD()
+        setupScoreHUD() // NEW score labels only
         addHamburger()
 
         NotificationCenter.default.addObserver(self, selector: #selector(onPlayerFiredShot(_:)), name: .AOTDPlayerFiredShot, object: nil)
@@ -88,8 +97,11 @@ class GameScene: SKScene {
         }
 
         applyGraphicsToManagersAndView()
+        // Note: positionHUD() is defined in GameScene+HUD.swift
         positionHUD()
+        // position the hamburger (in GameScene+Menu.swift) and score labels
         positionHamburger()
+        positionScoreHUD()
 
         // Chance-based powerups
         attemptSpawnShotgunForRound()
@@ -107,6 +119,7 @@ class GameScene: SKScene {
         positionPowerup(hmgPickupNode)
         positionPowerup(shotgunPickupNode)
         positionPowerup(laserPickupNode)
+        positionScoreHUD() // keep score labels aligned with safe area
     }
 
     deinit {
@@ -199,10 +212,15 @@ class GameScene: SKScene {
             }
             zombie.update(playerPosition: player.sprite.position)
 
-            // ⬇️ Use reduced-radius circle overlap for zombie→player damage
+            // reduced-radius circle overlap for zombie→player damage
             if (players.first?.lives ?? 0) > 0, zombieHitsPlayer(zombie, player) {
+                let before = player.lives
                 player.takeDamage()
                 updateHUD()
+                if player.lives < before {
+                    // lost a life -> reset multiplier
+                    scoreManager.resetOnLifeLoss()
+                }
                 checkForGameOver()
             }
             return true
@@ -216,7 +234,12 @@ class GameScene: SKScene {
             // Hit zombies using reduced-radius circle overlap
             for zombie in self.zombies {
                 if self.bulletHitsZombie(bullet, zombie) {
+                    let preHealth = zombie.health
                     zombie.takeDamage(amount: player.currentWeapon.damage)
+                    if zombie.health <= 0 && preHealth > 0 {
+                        self.scoreManager.awardKill()
+                    }
+
                     if isLaser {
                         if self.ricochetLaserBulletOffZombie(bullet, zombieCenter: zombie.position) {
                             break
@@ -260,9 +283,61 @@ class GameScene: SKScene {
         }
     }
 
-    // MARK: - Game Over flow (implemented in +Menu)
+    // MARK: - Game Over flow (local wrapper to avoid missing symbol)
     func checkForGameOver() {
-        if (players.first?.lives ?? 0) <= 0 { triggerGameOver() }
+        if (players.first?.lives ?? 0) <= 0 {
+            // triggerGameOver() is implemented in GameScene+Menu.swift
+            triggerGameOver()
+        }
+    }
+
+    // ============================================================
+    // MARK: - Circle-overlap combat helpers (tunable)
+    // ============================================================
+
+    private func bulletHitsZombie(_ bullet: SKSpriteNode, _ zombie: Zombie) -> Bool {
+        let br = max(bullet.size.width, bullet.size.height) * 0.5 * 0.60
+        let zr = zombie.hitRadius
+        let dx = bullet.position.x - zombie.position.x
+        let dy = bullet.position.y - zombie.position.y
+        return (dx*dx + dy*dy) <= (br + zr) * (br + zr)
+    }
+
+    private func zombieHitsPlayer(_ zombie: Zombie, _ player: Player) -> Bool {
+        let zr = zombie.hitRadius
+        let pr: CGFloat = 24
+        let dx = player.sprite.position.x - zombie.position.x
+        let dy = player.sprite.position.y - zombie.position.y
+        return (dx*dx + dy*dy) <= (zr + pr) * (zr + pr)
+    }
+
+    // ============================================================
+    // MARK: - Score HUD (NEW, score labels only)
+    // ============================================================
+
+    private func setupScoreHUD() {
+        scoreLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        scoreLabel.fontSize = 22
+        scoreLabel.fontColor = .white
+        scoreLabel.zPosition = 102
+        addChild(scoreLabel)
+
+        multLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        multLabel.fontSize = 16
+        multLabel.fontColor = .white
+        multLabel.zPosition = 102
+        addChild(multLabel)
+
+        // Initial paint
+        scoreDidChange(to: 0, multiplier: 1)
+        positionScoreHUD()
+    }
+
+    private func positionScoreHUD() {
+        // safeFrame() is defined in GameScene+SafeArea.swift
+        let r = safeFrame()
+        scoreLabel?.position = CGPoint(x: r.midX, y: r.maxY - 28)
+        multLabel?.position  = CGPoint(x: r.midX, y: r.maxY - 50)
     }
 
     // MARK: - Graphics application (used by +Menu)
@@ -280,25 +355,20 @@ class GameScene: SKScene {
         roundManager?.shadowsDisabled = shadowsDisabled
     }
 
-    // ============================================================
-    // MARK: - Circle-overlap combat helpers (tunable)
-    // ============================================================
-
-    /// Bullet→Zombie: compare distance vs (reduced bullet radius + scaled zombie radius)
-    private func bulletHitsZombie(_ bullet: SKSpriteNode, _ zombie: Zombie) -> Bool {
-        let br = max(bullet.size.width, bullet.size.height) * 0.5 * 0.60   // shrink bullet radius a bit
-        let zr = zombie.hitRadius                                          // scaled by Zombie.hitRadiusScale
-        let dx = bullet.position.x - zombie.position.x
-        let dy = bullet.position.y - zombie.position.y
-        return (dx*dx + dy*dy) <= (br + zr) * (br + zr)
+    // === Forwarders for RoundManager (scoring hooks)
+    func awardRoundStartPoints(level: Int) {
+        scoreManager.awardRoundStart(level: level)
     }
 
-    /// Zombie→Player: compare distance vs (scaled zombie radius + player radius)
-    private func zombieHitsPlayer(_ zombie: Zombie, _ player: Player) -> Bool {
-        let zr = zombie.hitRadius
-        let pr: CGFloat = 24                                               // player effective radius (tweak)
-        let dx = player.sprite.position.x - zombie.position.x
-        let dy = player.sprite.position.y - zombie.position.y
-        return (dx*dx + dy*dy) <= (zr + pr) * (zr + pr)
+    func awardRoundCompletePoints(level: Int) {
+        scoreManager.awardRoundComplete(level: level)
+    }
+}
+
+// MARK: - ScoreHUDDelegate
+extension GameScene: ScoreHUDDelegate {
+    func scoreDidChange(to newScore: Int, multiplier: Int) {
+        scoreLabel?.text = "Score: \(newScore)"
+        multLabel?.text  = "Multiplier: x\(multiplier)"
     }
 }
