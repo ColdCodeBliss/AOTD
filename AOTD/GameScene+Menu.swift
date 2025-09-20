@@ -32,11 +32,13 @@ extension GameScene {
     func positionHamburger() {
         guard let node = hamburgerNode else { return }
         let r = self.safeFrame()
-        let padding: CGFloat = 12
+        // tighter left inset so it sits closer to the edge
+        let insetX: CGFloat = -50    // was 12 (left/right)
+        let insetY: CGFloat = 4  // keep vertical aligned with heart HUD (up/down)
         let bbox = node.calculateAccumulatedFrame()
         node.position = CGPoint(
-            x: r.minX + padding + bbox.width * 0.5,
-            y: r.maxY - padding - bbox.height * 0.5
+            x: r.minX + insetX + bbox.width * 0.5,
+            y: r.maxY - insetY - bbox.height * 0.5
         )
     }
 

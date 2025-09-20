@@ -94,7 +94,7 @@ class GameScene: SKScene {
         // Chance-based powerups
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-        attemptSpawnLaserForRound()   // NEW: 10% chance when levelNumber >= 6
+        attemptSpawnLaserForRound()   // 10% chance when levelNumber >= 6
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -183,7 +183,7 @@ class GameScene: SKScene {
 
         attemptSpawnShotgunForRound()
         attemptSpawnHMGForRound()
-        attemptSpawnLaserForRound()   // NEW: 10% chance when levelNumber >= 6
+        attemptSpawnLaserForRound()   // 10% chance when levelNumber >= 6
     }
 
     // MARK: - Update loop
@@ -198,7 +198,9 @@ class GameScene: SKScene {
                 return false
             }
             zombie.update(playerPosition: player.sprite.position)
-            if (players.first?.lives ?? 0) > 0, zombie.frame.intersects(player.sprite.frame) {
+
+            // ⬇️ Use reduced-radius circle overlap for zombie→player damage
+            if (players.first?.lives ?? 0) > 0, zombieHitsPlayer(zombie, player) {
                 player.takeDamage()
                 updateHUD()
                 checkForGameOver()
@@ -211,9 +213,9 @@ class GameScene: SKScene {
             guard let bullet = node as? SKSpriteNode else { return }
             let isLaser = (bullet.userData?["isLaser"] as? NSNumber)?.boolValue ?? false
 
-            // Hit zombies
+            // Hit zombies using reduced-radius circle overlap
             for zombie in self.zombies {
-                if bullet.frame.intersects(zombie.frame) {
+                if self.bulletHitsZombie(bullet, zombie) {
                     zombie.takeDamage(amount: player.currentWeapon.damage)
                     if isLaser {
                         if self.ricochetLaserBulletOffZombie(bullet, zombieCenter: zombie.position) {
@@ -276,5 +278,27 @@ class GameScene: SKScene {
         roundManager?.lowEffectsEnabled = lowEffectsEnabled
         roundManager?.spawnFPS30CapHint = fps30CapEnabled
         roundManager?.shadowsDisabled = shadowsDisabled
+    }
+
+    // ============================================================
+    // MARK: - Circle-overlap combat helpers (tunable)
+    // ============================================================
+
+    /// Bullet→Zombie: compare distance vs (reduced bullet radius + scaled zombie radius)
+    private func bulletHitsZombie(_ bullet: SKSpriteNode, _ zombie: Zombie) -> Bool {
+        let br = max(bullet.size.width, bullet.size.height) * 0.5 * 0.60   // shrink bullet radius a bit
+        let zr = zombie.hitRadius                                          // scaled by Zombie.hitRadiusScale
+        let dx = bullet.position.x - zombie.position.x
+        let dy = bullet.position.y - zombie.position.y
+        return (dx*dx + dy*dy) <= (br + zr) * (br + zr)
+    }
+
+    /// Zombie→Player: compare distance vs (scaled zombie radius + player radius)
+    private func zombieHitsPlayer(_ zombie: Zombie, _ player: Player) -> Bool {
+        let zr = zombie.hitRadius
+        let pr: CGFloat = 24                                               // player effective radius (tweak)
+        let dx = player.sprite.position.x - zombie.position.x
+        let dy = player.sprite.position.y - zombie.position.y
+        return (dx*dx + dy*dy) <= (zr + pr) * (zr + pr)
     }
 }

@@ -228,9 +228,21 @@ extension GameScene {
                     return
                 }
 
+                // ⬇️ New behavior: do NOT flash until remaining <= 10s
+                if remaining > 10 {
+                    // Ensure fully visible and reset toggle bookkeeping
+                    if n.alpha != 1.0 { n.alpha = 1.0 }
+                    if now - last > 1.0 {
+                        last = now
+                        n.userData?["lastToggle"] = NSNumber(value: last)
+                        n.userData?["flashOn"] = NSNumber(booleanLiteral: true)
+                    }
+                    return
+                }
+
+                // Flashing ramps up as time decreases (unchanged logic for <= 10s)
                 let interval: Double
-                if remaining > 10 { interval = 0.60 }
-                else if remaining > 5 { interval = 0.30 }
+                if remaining > 5 { interval = 0.30 }
                 else if remaining > 2 { interval = 0.15 }
                 else { interval = 0.08 }
 
@@ -245,6 +257,7 @@ extension GameScene {
         ]))
         node.run(tick, withKey: "powerupLifetime")
     }
+
 
     // Convenience for restart
     func resetAllPowerupsAndHUD() {
