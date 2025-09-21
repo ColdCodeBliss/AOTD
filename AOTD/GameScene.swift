@@ -320,25 +320,50 @@ class GameScene: SKScene {
         scoreLabel.fontSize = 22
         scoreLabel.fontColor = .white
         scoreLabel.zPosition = 102
+        scoreLabel.horizontalAlignmentMode = .left
+        scoreLabel.verticalAlignmentMode   = .center   // <— align to ham midY
         addChild(scoreLabel)
 
         multLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
         multLabel.fontSize = 16
         multLabel.fontColor = .white
         multLabel.zPosition = 102
+        multLabel.horizontalAlignmentMode = .left
+        multLabel.verticalAlignmentMode   = .center    // <— align to ham midY
         addChild(multLabel)
 
-        // Initial paint
         scoreDidChange(to: 0, multiplier: 1)
         positionScoreHUD()
     }
 
+
     private func positionScoreHUD() {
-        // safeFrame() is defined in GameScene+SafeArea.swift
         let r = safeFrame()
-        scoreLabel?.position = CGPoint(x: r.midX, y: r.maxY - 28)
-        multLabel?.position  = CGPoint(x: r.midX, y: r.maxY - 50)
+        let paddingX: CGFloat = 10
+        let inlineGap: CGFloat = 8
+
+        // Fallback anchors if hamburger is missing
+        var anchorX = r.minX + 12
+        var anchorY = r.maxY - 24
+
+        if let ham = hamburgerNode {
+            let hamFrame = ham.calculateAccumulatedFrame()
+            anchorX = hamFrame.maxX + paddingX
+            anchorY = hamFrame.midY          // <— same “row” as hamburger
+        }
+
+        // Place score on the row
+        scoreLabel?.position = CGPoint(x: anchorX, y: anchorY)
+
+        // Place multiplier inline to the right using ACCUMULATED FRAME (robust width)
+        if let s = scoreLabel, let m = multLabel {
+            let scoreRight = s.position.x + s.calculateAccumulatedFrame().width
+            m.position = CGPoint(x: scoreRight + inlineGap, y: anchorY)
+        }
     }
+
+
+
 
     // MARK: - Graphics application (used by +Menu)
     func applyGraphicsToManagersAndView() {
@@ -366,9 +391,11 @@ class GameScene: SKScene {
 }
 
 // MARK: - ScoreHUDDelegate
-extension GameScene: ScoreHUDDelegate {
-    func scoreDidChange(to newScore: Int, multiplier: Int) {
-        scoreLabel?.text = "Score: \(newScore)"
-        multLabel?.text  = "Multiplier: x\(multiplier)"
+    extension GameScene: ScoreHUDDelegate {
+        func scoreDidChange(to newScore: Int, multiplier: Int) {
+            scoreLabel?.text = "Score: \(newScore)"
+            multLabel?.text  = "x\(multiplier)"
+            positionScoreHUD() // reflow so multiplier hugs the new score width
+        }
     }
-}
+
