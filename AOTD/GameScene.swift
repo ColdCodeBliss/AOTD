@@ -16,19 +16,19 @@ class GameScene: SKScene {
     var roundManager: RoundManager?
     var levelNumber: Int = 1
 
-    // === Scoring (NEW) ===
+    // === Scoring ===
     var scoreManager = ScoreManager()
     private var scoreLabel: SKLabelNode!
     private var multLabel: SKLabelNode!
 
-    // MARK: - HUD (owned here, implemented in +HUD)
+    // MARK: - HUD
     var livesLabel: SKLabelNode!
     var livesHeart: SKSpriteNode!
     var shotgunTimerLabel: SKLabelNode?
     var hmgTimerLabel: SKLabelNode?
     var laserTimerLabel: SKLabelNode?
 
-    // MARK: - Menu / Settings (implemented in +Menu)
+    // MARK: - Menu / Settings
     var hamburgerNode: SKNode?
     var settingsHost: UIViewController?
 
@@ -36,7 +36,7 @@ class GameScene: SKScene {
     var isGameOver = false
     var gameOverAlertPresented = false
 
-    // MARK: - Power-ups (implemented in +Powerups)
+    // MARK: - Power-ups
     var shotgunPickupNode: SKSpriteNode?
     var hmgPickupNode: SKSpriteNode?
     var laserPickupNode: SKSpriteNode?
@@ -52,7 +52,7 @@ class GameScene: SKScene {
     var laserActive = false
     var laserTimeRemaining: TimeInterval = 0
 
-    // MARK: - Settings persistence (used by +Menu)
+    // MARK: - Settings persistence
     var masterVolume: Float = {
         if UserDefaults.standard.object(forKey: "AOTD.masterVolume") == nil { return 0.8 }
         return UserDefaults.standard.float(forKey: "AOTD.masterVolume")
@@ -72,8 +72,10 @@ class GameScene: SKScene {
         didSet { UserDefaults.standard.set(shadowsDisabled, forKey: "AOTD.disableShadows"); applyGraphicsToManagersAndView() }
     }
 
-    // === Terrain (NEW, self-contained) ===
+    // === Terrain (via TerrainManager) ===
+    private var terrainManager = TerrainManager()
     private var terrainBackground: SKSpriteNode?
+    private var terrainTilemap: SKNode?
 
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
@@ -84,12 +86,16 @@ class GameScene: SKScene {
         scoreManager.delegate = self
 
         // Terrain goes first so it sits behind everything
-        ensureTerrainNode()
-        applyTerrain(for: levelNumber)      // Level 1 -> forest.png
+        let result = terrainManager.applyTerrain(for: levelNumber,
+                                                 in: self,
+                                                 existingNode: terrainBackground,
+                                                 existingTilemap: terrainTilemap)
+        terrainBackground = result.bg
+        terrainTilemap    = result.tilemap
 
         setupPlayer()
         setupHUD()
-        setupScoreHUD() // NEW score labels only
+        setupScoreHUD()
         addHamburger()
 
         NotificationCenter.default.addObserver(self, selector: #selector(onPlayerFiredShot(_:)), name: .AOTDPlayerFiredShot, object: nil)
@@ -104,9 +110,7 @@ class GameScene: SKScene {
         }
 
         applyGraphicsToManagersAndView()
-        // Note: positionHUD() is defined in GameScene+HUD.swift
         positionHUD()
-        // position the hamburger (in GameScene+Menu.swift) and score labels
         positionHamburger()
         positionScoreHUD()
 
@@ -118,8 +122,10 @@ class GameScene: SKScene {
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        // keep terrain filling the scene on any size changes
-        resizeTerrainToScene()
+
+        // Keep terrain filling the scene on any size changes
+        terrainManager.layout(node: terrainBackground, in: self) // was: relayout / realign...
+        CityTilemap.layout(in: self)                             // re-lay out the city tilemap if present
 
         positionHUD()
         positionHamburger()
@@ -129,8 +135,9 @@ class GameScene: SKScene {
         positionPowerup(hmgPickupNode)
         positionPowerup(shotgunPickupNode)
         positionPowerup(laserPickupNode)
-        positionScoreHUD() // keep score labels aligned with safe area
+        positionScoreHUD()
     }
+
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -203,8 +210,13 @@ class GameScene: SKScene {
     func proceedToNextLevel() {
         levelNumber += 1
 
-        // Swap terrain for the new level
-        applyTerrain(for: levelNumber)
+        // Swap terrain for the new level (background + optional city tilemap)
+        let result = terrainManager.applyTerrain(for: levelNumber,
+                                                 in: self,
+                                                 existingNode: terrainBackground,
+                                                 existingTilemap: terrainTilemap)
+        terrainBackground = result.bg
+        terrainTilemap    = result.tilemap
 
         roundManager?.startRound(in: self)
 
@@ -326,7 +338,7 @@ class GameScene: SKScene {
     }
 
     // ============================================================
-    // MARK: - Score HUD (NEW, score labels only)
+    // MARK: - Score HUD
     // ============================================================
 
     private func setupScoreHUD() {
@@ -335,7 +347,7 @@ class GameScene: SKScene {
         scoreLabel.fontColor = .white
         scoreLabel.zPosition = 102
         scoreLabel.horizontalAlignmentMode = .left
-        scoreLabel.verticalAlignmentMode   = .center   // align to ham midY
+        scoreLabel.verticalAlignmentMode   = .center
         addChild(scoreLabel)
 
         multLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
@@ -343,7 +355,7 @@ class GameScene: SKScene {
         multLabel.fontColor = .white
         multLabel.zPosition = 102
         multLabel.horizontalAlignmentMode = .left
-        multLabel.verticalAlignmentMode   = .center    // align to ham midY
+        multLabel.verticalAlignmentMode   = .center
         addChild(multLabel)
 
         scoreDidChange(to: 0, multiplier: 1)
@@ -355,27 +367,24 @@ class GameScene: SKScene {
         let paddingX: CGFloat = 10
         let inlineGap: CGFloat = 8
 
-        // Fallback anchors if hamburger is missing
         var anchorX = r.minX + 12
         var anchorY = r.maxY - 24
 
         if let ham = hamburgerNode {
             let hamFrame = ham.calculateAccumulatedFrame()
             anchorX = hamFrame.maxX + paddingX
-            anchorY = hamFrame.midY          // same “row” as hamburger
+            anchorY = hamFrame.midY
         }
 
-        // Place score on the row
         scoreLabel?.position = CGPoint(x: anchorX, y: anchorY)
 
-        // Place multiplier inline to the right using ACCUMULATED FRAME (robust width)
         if let s = scoreLabel, let m = multLabel {
             let scoreRight = s.position.x + s.calculateAccumulatedFrame().width
             m.position = CGPoint(x: scoreRight + inlineGap, y: anchorY)
         }
     }
 
-    // MARK: - Graphics application (used by +Menu)
+    // MARK: - Graphics application
     func applyGraphicsToManagersAndView() {
         if let skv = view {
             skv.preferredFramesPerSecond = fps30CapEnabled ? 30 : 60
@@ -391,67 +400,8 @@ class GameScene: SKScene {
     }
 
     // === Forwarders for RoundManager (scoring hooks)
-    func awardRoundStartPoints(level: Int) {
-        scoreManager.awardRoundStart(level: level)
-    }
-
-    func awardRoundCompletePoints(level: Int) {
-        scoreManager.awardRoundComplete(level: level)
-    }
-
-    // ============================================================
-    // MARK: - Terrain helpers (NEW)
-    // ============================================================
-
-    /// Ensure we have a reusable background sprite behind everything.
-    private func ensureTerrainNode() {
-        if terrainBackground == nil {
-            let bg = SKSpriteNode()
-            bg.zPosition = -1000
-            bg.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-            bg.name = "terrainBackground"
-            addChild(bg)
-            terrainBackground = bg
-        }
-        resizeTerrainToScene()
-    }
-
-    /// Apply the correct texture for a given level and scale-to-fill.
-    private func applyTerrain(for level: Int) {
-        let texName = terrainTextureName(for: level)
-        let tex = SKTexture(imageNamed: texName)
-        terrainBackground?.texture = tex
-        terrainBackground?.color = .clear
-        terrainBackground?.size = tex.size()
-        terrainBackground?.position = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-        resizeTerrainToScene()
-    }
-
-    /// Keep the background filling the scene when size changes.
-    private func resizeTerrainToScene() {
-        guard let bg = terrainBackground, bg.texture != nil else { return }
-        let sceneW = size.width
-        let sceneH = size.height
-        let texW = bg.size.width
-        let texH = bg.size.height
-        guard texW > 0, texH > 0 else { return }
-
-        let scaleX = sceneW / texW
-        let scaleY = sceneH / texH
-        let scale  = max(scaleX, scaleY) // fill
-        bg.setScale(scale)
-        bg.position = CGPoint(x: sceneW * 0.5, y: sceneH * 0.5)
-    }
-
-    /// Simple mapping: Level 1 → forest.png (expand as you add art)
-    private func terrainTextureName(for level: Int) -> String {
-        switch level {
-        case 1:  return "forest"
-        case 2:  return "desert"
-        case 3:  return "city"
-        default: return "forest"
-        }
-    }
+    func awardRoundStartPoints(level: Int) { scoreManager.awardRoundStart(level: level) }
+    func awardRoundCompletePoints(level: Int) { scoreManager.awardRoundComplete(level: level) }
 }
 
 // MARK: - ScoreHUDDelegate
@@ -459,6 +409,9 @@ extension GameScene: ScoreHUDDelegate {
     func scoreDidChange(to newScore: Int, multiplier: Int) {
         scoreLabel?.text = "Score: \(newScore)"
         multLabel?.text  = "x\(multiplier)"
-        positionScoreHUD() // reflow so multiplier hugs the new score width
+        positionScoreHUD()
     }
 }
+
+// MARK: - SafeFrameProviding
+extension GameScene: SafeFrameProviding {}

@@ -25,16 +25,38 @@ struct GameView: View {
                 // Adaptive joystick sizing & placement
                 let insets = geo.safeAreaInsets
                 let shorter = min(geo.size.width, geo.size.height)
-                // Scale the joystick base with device size; clamp to a practical range
                 let base: CGFloat = max(110, min(180, shorter * 0.22))
                 let margin: CGFloat = 16
                 let half = base / 2
 
-                // Bottom-LEFT joystick (movement)
+                // Bottom-LEFT joystick (movement) — now collision-aware
                 VirtualJoystickView(isShootingJoystick: false) { vector in
+                    // SpriteKit's Y+ is up; our joystick gives down as +, so invert Y
                     let corrected = CGVector(dx: vector.dx, dy: -vector.dy)
                     playerDirection = corrected
-                    scene?.players.first?.move(direction: corrected)
+
+                    guard
+                        let scn = scene,
+                        let player = scn.players.first
+                    else { return }
+
+                    // Compute proposed step exactly like Player.move(direction:) would:
+                    let dx = corrected.dx * player.speed
+                    let dy = corrected.dy * player.speed
+                    let current = player.sprite.position
+                    let proposed = CGPoint(x: current.x + dx, y: current.y + dy)
+
+                    // Collision radius for the player. Keep in sync with your gameplay feel.
+                    // (Matches what we used earlier for player overlap ≈ 24 pts.)
+                    let playerRadius: CGFloat = 24
+
+                    // Resolve against the city tilemap if present (no-op on other terrains)
+                    let resolved = CityTilemap.resolvedMove(from: current,
+                                                            to: proposed,
+                                                            radius: playerRadius,
+                                                            in: scn)
+
+                    player.sprite.position = resolved
                 }
                 .frame(width: base, height: base)
                 .position(

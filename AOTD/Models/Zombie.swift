@@ -16,17 +16,35 @@ class Zombie: SKSpriteNode {
         max(size.width, size.height) * 0.5 * hitRadiusScale
     }
 
+    /// Baseline update signature preserved. If a City tilemap is present,
+    /// we resolve moves against obstacle tiles; otherwise we use simple seek.
     func update(playerPosition: CGPoint) {
         guard !isDead else { return }
+
         let dx = playerPosition.x - position.x
         let dy = playerPosition.y - position.y
         let distance = sqrt(dx*dx + dy*dy)
-        guard distance > 0 else { return }
+        guard distance > 0.0001 else { return }
 
-        let velocity = CGVector(dx: (dx/distance) * moveSpeed,
-                                dy: (dy/distance) * moveSpeed)
-        position.x += velocity.dx
-        position.y += velocity.dy
+        // Proposed straight-line movement toward the player
+        let step = moveSpeed
+        let vx = (dx / distance) * step
+        let vy = (dy / distance) * step
+        let proposed = CGPoint(x: position.x + vx, y: position.y + vy)
+
+        if let sc = scene as? (SKScene & SafeFrameProviding) {
+            // Ask the tilemap to resolve against obstacles (no-op on non-city levels)
+            let resolved = CityTilemap.resolvedMove(from: position,
+                                                    to: proposed,
+                                                    radius: hitRadius,
+                                                    in: sc)
+            position = resolved
+        } else {
+            // Fallback: original movement
+            position.x += vx
+            position.y += vy
+        }
+
         zRotation = atan2(dy, dx)
     }
 

@@ -1,16 +1,18 @@
 import SpriteKit
 
 /// Central place to choose and lay out level terrain.
+/// Also attaches/removes the optional collision tilemap for the City level.
 struct TerrainManager {
     enum Terrain: String, CaseIterable {
         case forest
         case desert
-        case city
+        case city   // uses "apoc_city" image + JSON tilemap
     }
 
-    /// Simple, editable banding by level. If a level isn’t in any band,
-    /// we fall back to cycling through all terrains.
+    /// Simple, editable banding by level.
+    /// NOTE: We add (3...3, .city) so Level 3 is your apoc_city map.
     var levelBands: [(ClosedRange<Int>, Terrain)] = [
+        (3...3,   .city),   // Level 3 = City (tilemap)
         (1...20,  .forest),
         (21...60, .desert),
         (61...100, .city)
@@ -21,56 +23,85 @@ struct TerrainManager {
         if let match = levelBands.first(where: { $0.0.contains(level) })?.1 {
             return match
         }
-        // Fallback: cycle by level if out of configured bands
         let all = Terrain.allCases
         return all[(max(1, level) - 1) % all.count]
     }
 
+    /// Texture name per terrain (atlas-friendly).
+    private func textureName(for terrain: Terrain) -> String {
+        switch terrain {
+        case .forest: return "forest"
+        case .desert: return "desert"
+        case .city:   return "apoc_city" // image inside Terrains.atlas
+        }
+    }
+
     /// Create (or reuse) and apply the correct terrain node for a level.
-    /// Returns the node you should keep as `terrainNode`.
+    /// Also creates/updates an optional tilemap for the City terrain.
+    /// - Returns: (background sprite, optional tilemap node)
     @discardableResult
     func applyTerrain(for level: Int,
                       in scene: SKScene & SafeFrameProviding,
-                      existingNode: SKSpriteNode?) -> SKSpriteNode {
+                      existingNode: SKSpriteNode?,
+                      existingTilemap: SKNode?) -> (bg: SKSpriteNode, tilemap: SKNode?) {
+
         let chosen = terrain(for: level)
 
-        // Reuse if possible
+        // --- Background: reuse if possible
+        let bg: SKSpriteNode
         if let node = existingNode,
            node.userData?["terrainName"] as? String == chosen.rawValue {
-            layout(node: node, in: scene)
-            return node
+            bg = node
+        } else {
+            let tex = SKTexture(imageNamed: textureName(for: chosen))
+            let node = SKSpriteNode(texture: tex)
+            node.name = "terrain"
+            node.zPosition = -100
+            node.userData = (node.userData ?? NSMutableDictionary())
+            node.userData?["terrainName"] = chosen.rawValue
+
+            existingNode?.removeFromParent()
+            scene.addChild(node)
+            bg = node
         }
 
-        // Build a fresh node
-        let tex = SKTexture(imageNamed: chosen.rawValue)  // loads from Terrains.atlas transparently
-        let node = SKSpriteNode(texture: tex)
-        node.name = "terrain"
-        node.zPosition = -100
-        node.userData = (node.userData ?? NSMutableDictionary())
-        node.userData?["terrainName"] = chosen.rawValue
+        // Layout background to fill the scene (aspect-fill + center)
+        layout(node: bg, in: scene)
 
-        // If replacing an old one, swap in-place to avoid changing z-order relative to other HUD
-        if let old = existingNode {
-            old.removeFromParent()
+        // --- Tilemap (City only)
+        var tilemapNode: SKNode? = existingTilemap
+        if chosen == .city {
+            if let _ = tilemapNode {
+                // Re-layout the current city map to the scene (aspect-fill + center)
+                CityTilemap.layout(in: scene)
+            } else {
+                // Create and attach a new one above terrain
+                tilemapNode = CityTilemap.attach(to: scene, below: bg)
+            }
+        } else {
+            // Remove any previous city tilemap when switching away
+            if let map = tilemapNode {
+                map.removeFromParent()
+            }
+            tilemapNode = nil
         }
-        scene.addChild(node)
-        layout(node: node, in: scene)
-        return node
+
+        return (bg, tilemapNode)
     }
 
-    /// Layout to **aspect-fill** the scene’s safe frame and center it.
+    /// Layout to **aspect-fill** the scene’s size and center it.
     func layout(node: SKSpriteNode?, in scene: SKScene & SafeFrameProviding) {
         guard let node = node, let tex = node.texture else { return }
-        let r = scene.safeFrame()
-        let targetW = r.width
-        let targetH = r.height
+        let sceneW = scene.size.width
+        let sceneH = scene.size.height
 
         let texW = tex.size().width
         let texH = tex.size().height
-        let scale = max(targetW / texW, targetH / texH)
+        guard texW > 0, texH > 0 else { return }
 
+        let scale = max(sceneW / texW, sceneH / texH)
         node.size = CGSize(width: texW * scale, height: texH * scale)
-        node.position = CGPoint(x: r.midX, y: r.midY)
+        node.position = CGPoint(x: sceneW * 0.5, y: sceneH * 0.5)
     }
 }
 
