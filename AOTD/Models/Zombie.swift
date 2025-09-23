@@ -16,7 +16,7 @@ class Zombie: SKSpriteNode {
         max(size.width, size.height) * 0.5 * hitRadiusScale
     }
 
-    /// Baseline update signature preserved. If a City tilemap is present,
+    /// Baseline update signature preserved. If a tilemap is present,
     /// we resolve moves against obstacle tiles; otherwise we use simple seek.
     func update(playerPosition: CGPoint) {
         guard !isDead else { return }
@@ -33,11 +33,11 @@ class Zombie: SKSpriteNode {
         let proposed = CGPoint(x: position.x + vx, y: position.y + vy)
 
         if let sc = scene as? (SKScene & SafeFrameProviding) {
-            // Ask the tilemap to resolve against obstacles (no-op on non-city levels)
-            let resolved = CityTilemap.resolvedMove(from: position,
-                                                    to: proposed,
-                                                    radius: hitRadius,
-                                                    in: sc)
+            // ✅ Use TilemapKit so any active map (city, jungle, etc.) is respected
+            let resolved = TilemapKit.resolvedMove(from: position,
+                                                   to: proposed,
+                                                   radius: hitRadius,
+                                                   in: sc)
             position = resolved
         } else {
             // Fallback: original movement

@@ -29,9 +29,9 @@ struct GameView: View {
                 let margin: CGFloat = 16
                 let half = base / 2
 
-                // Bottom-LEFT joystick (movement) — now collision-aware
+                // Bottom-LEFT joystick (movement)
                 VirtualJoystickView(isShootingJoystick: false) { vector in
-                    // SpriteKit's Y+ is up; our joystick gives down as +, so invert Y
+                    // SpriteKit Y+ is up; joystick gives down as +, so invert Y
                     let corrected = CGVector(dx: vector.dx, dy: -vector.dy)
                     playerDirection = corrected
 
@@ -40,21 +40,20 @@ struct GameView: View {
                         let player = scn.players.first
                     else { return }
 
-                    // Compute proposed step exactly like Player.move(direction:) would:
+                    // Proposed step
                     let dx = corrected.dx * player.speed
                     let dy = corrected.dy * player.speed
                     let current = player.sprite.position
                     let proposed = CGPoint(x: current.x + dx, y: current.y + dy)
 
-                    // Collision radius for the player. Keep in sync with your gameplay feel.
-                    // (Matches what we used earlier for player overlap ≈ 24 pts.)
+                    // Keep in sync with gameplay feel
                     let playerRadius: CGFloat = 24
 
-                    // Resolve against the city tilemap if present (no-op on other terrains)
-                    let resolved = CityTilemap.resolvedMove(from: current,
-                                                            to: proposed,
-                                                            radius: playerRadius,
-                                                            in: scn)
+                    // ✅ Route through TilemapKit (works for any active tilemap: city, jungle, etc.)
+                    let resolved = TilemapKit.resolvedMove(from: current,
+                                                           to: proposed,
+                                                           radius: playerRadius,
+                                                           in: scn)
 
                     player.sprite.position = resolved
                 }
@@ -83,7 +82,6 @@ struct GameView: View {
                 )
                 .allowsHitTesting(true)
             }
-            // Return to main menu when GameScene posts the notification
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("AOTDExitToMainMenu"))) { _ in
                 dismiss()
             }

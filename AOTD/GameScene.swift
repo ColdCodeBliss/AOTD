@@ -126,7 +126,7 @@ class GameScene: SKScene {
         // Keep terrain filling the scene on any size changes
         terrainManager.layout(node: terrainBackground, in: self) // was: relayout / realign...
         CityTilemap.layout(in: self)                             // re-lay out the city tilemap if present
-
+        JungleTilemap.layout(in: self)
         positionHUD()
         positionHamburger()
         positionShotgunHUD()

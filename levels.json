@@ -1,6 +1,6 @@
 [
     {
-        "terrain": "forest",
+        "terrain": "apoc_jungle",
         "zombieCount": 5,
         "zombieHealth": 1,
         "zombieSpeed": 2.0
@@ -12,7 +12,7 @@
         "zombieSpeed": 2.5
     },
     {
-        "terrain": "city",
+        "terrain": "apoc_city",
         "zombieCount": 10,
         "zombieHealth": 1,
         "zombieSpeed": 3.0
