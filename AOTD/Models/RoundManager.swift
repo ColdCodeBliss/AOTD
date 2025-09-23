@@ -18,12 +18,21 @@ class RoundManager {
     var spawnFPS30CapHint: Bool = false
     var shadowsDisabled: Bool = false
 
+    // New: stop further level progression when we’re done
+    private var finishedAllRounds = false
+
     init(levelData: [Level]) {
         self.levelData = levelData
     }
 
     func startRound(in scene: GameScene) {
-        guard currentRound < maxRounds else { return }
+        guard !finishedAllRounds else { return }
+        guard currentRound < maxRounds else {
+            // We’ve reached the end; mark finished and stop.
+            finishedAllRounds = true
+            return
+        }
+
         currentRound += 1
         self.scene = scene
         zombiesSpawnedThisRound = 0
@@ -67,8 +76,17 @@ class RoundManager {
     }
 
     func levelCompleted() {
+        // If we already hit the last round, ignore further completions to avoid loops.
+        guard !finishedAllRounds else { return }
+
         spawnTimer?.invalidate()
         spawnTimer = nil
-        scene?.proceedToNextLevel()
+
+        // If there *is* another round, proceed; otherwise mark finished.
+        if currentRound < maxRounds {
+            scene?.proceedToNextLevel()
+        } else {
+            finishedAllRounds = true
+        }
     }
 }
